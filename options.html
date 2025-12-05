@@ -13,47 +13,6 @@
       <p class="subtitle">Configure talk tracks for different Datadog pages</p>
     </header>
 
-    <!-- Control Panel -->
-    <div class="control-panel">
-      <div class="search-section">
-        <input 
-          type="text" 
-          id="searchInput" 
-          class="search-input" 
-          placeholder="🔍 Search tracks by title, URL, content, or category..."
-        />
-      </div>
-
-      <div class="filter-section">
-        <select id="categoryFilter" class="category-filter">
-          <!-- Categories populated dynamically by JavaScript -->
-        </select>
-
-        <select id="tagFilter" class="tag-filter">
-          <option value="all">All Tags</option>
-          <!-- Tags populated dynamically by JavaScript -->
-        </select>
-
-        <button id="expandAll" class="control-btn" title="Expand all tracks">Expand All</button>
-        <button id="collapseAll" class="control-btn" title="Collapse all tracks">Collapse All</button>
-        <button id="importBtn" class="control-btn" title="Import tracks from JSON">Import</button>
-        <button id="exportBtn" class="control-btn" title="Export tracks to JSON">Export</button>
-      </div>
-
-      <div id="filterInfo" class="filter-info">Showing all tracks</div>
-    </div>
-
-    <!-- Bulk Actions -->
-    <div id="bulkActions" class="bulk-actions" style="display: none;">
-      <span id="bulkCount" class="bulk-count">0 selected</span>
-      <button id="selectAllBtn" class="bulk-btn">Select All</button>
-      <button id="deselectAllBtn" class="bulk-btn">Deselect All</button>
-      <select id="bulkCategorySelect" class="bulk-category">
-        <!-- Categories populated dynamically by JavaScript -->
-      </select>
-      <button id="bulkDeleteBtn" class="bulk-btn bulk-delete">Delete Selected</button>
-    </div>
-
     <!-- General Settings -->
     <div class="settings-section">
       <h2>⚙️ General Settings</h2>
@@ -155,6 +114,47 @@
         <li><strong>URL patterns:</strong> <code>*/dashboards/*</code>, <code>*/apm/services</code>, etc.</li>
         <li><strong>Markdown:</strong> <code>**bold**</code>, <code>*italic*</code>, <code>- list</code>, <code>## heading</code></li>
       </ul>
+    </div>
+
+    <!-- Control Panel -->
+    <div class="control-panel">
+      <div class="search-section">
+        <input 
+          type="text" 
+          id="searchInput" 
+          class="search-input" 
+          placeholder="🔍 Search tracks by title, URL, content, or category..."
+        />
+      </div>
+
+      <div class="filter-section">
+        <select id="categoryFilter" class="category-filter">
+          <!-- Categories populated dynamically by JavaScript -->
+        </select>
+
+        <select id="tagFilter" class="tag-filter">
+          <option value="all">All Tags</option>
+          <!-- Tags populated dynamically by JavaScript -->
+        </select>
+
+        <button id="expandAll" class="control-btn" title="Expand all tracks">Expand All</button>
+        <button id="collapseAll" class="control-btn" title="Collapse all tracks">Collapse All</button>
+        <button id="importBtn" class="control-btn" title="Import tracks from JSON">Import</button>
+        <button id="exportBtn" class="control-btn" title="Export tracks to JSON">Export</button>
+      </div>
+
+      <div id="filterInfo" class="filter-info">Showing all tracks</div>
+    </div>
+
+    <!-- Bulk Actions -->
+    <div id="bulkActions" class="bulk-actions" style="display: none;">
+      <span id="bulkCount" class="bulk-count">0 selected</span>
+      <button id="selectAllBtn" class="bulk-btn">Select All</button>
+      <button id="deselectAllBtn" class="bulk-btn">Deselect All</button>
+      <select id="bulkCategorySelect" class="bulk-category">
+        <!-- Categories populated dynamically by JavaScript -->
+      </select>
+      <button id="bulkDeleteBtn" class="bulk-btn bulk-delete">Delete Selected</button>
     </div>
 
     <div id="tracksList"></div>
