@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Datadog Demo Buddy - Configuration</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🐕 Demo Buddy Configuration</h1>
+      <p class="subtitle">Configure talk tracks for different Datadog pages</p>
+    </header>
+
+    <!-- Control Panel -->
+    <div class="control-panel">
+      <div class="search-section">
+        <input 
+          type="text" 
+          id="searchInput" 
+          class="search-input" 
+          placeholder="🔍 Search tracks by title, URL, content, or category..."
+        />
+      </div>
+
+      <div class="filter-section">
+        <select id="categoryFilter" class="category-filter">
+          <!-- Categories populated dynamically by JavaScript -->
+        </select>
+
+        <select id="tagFilter" class="tag-filter">
+          <option value="all">All Tags</option>
+          <!-- Tags populated dynamically by JavaScript -->
+        </select>
+
+        <button id="expandAll" class="control-btn" title="Expand all tracks">Expand All</button>
+        <button id="collapseAll" class="control-btn" title="Collapse all tracks">Collapse All</button>
+        <button id="importBtn" class="control-btn" title="Import tracks from JSON">Import</button>
+        <button id="exportBtn" class="control-btn" title="Export tracks to JSON">Export</button>
+      </div>
+
+      <div id="filterInfo" class="filter-info">Showing all tracks</div>
+    </div>
+
+    <!-- Bulk Actions -->
+    <div id="bulkActions" class="bulk-actions" style="display: none;">
+      <span id="bulkCount" class="bulk-count">0 selected</span>
+      <button id="selectAllBtn" class="bulk-btn">Select All</button>
+      <button id="deselectAllBtn" class="bulk-btn">Deselect All</button>
+      <select id="bulkCategorySelect" class="bulk-category">
+        <!-- Categories populated dynamically by JavaScript -->
+      </select>
+      <button id="bulkDeleteBtn" class="bulk-btn bulk-delete">Delete Selected</button>
+    </div>
+
+    <!-- General Settings -->
+    <div class="settings-section">
+      <h2>⚙️ General Settings</h2>
+      
+      <div class="form-group">
+        <label for="baseUrl">Base URL</label>
+        <p class="setting-description">Set the base URL for matching pages. Demo Buddy will work with any site, but this helps with URL pattern suggestions and AI context.</p>
+        <div class="base-url-input-group">
+          <input 
+            type="url" 
+            id="baseUrl" 
+            placeholder="https://app.datadoghq.com"
+            class="base-url-input"
+          />
+          <button type="button" id="saveBaseUrlBtn" class="save-btn small">Save</button>
+        </div>
+        <div class="base-url-presets">
+          <span class="preset-label">Quick presets:</span>
+          <button type="button" class="preset-btn" data-url="https://app.datadoghq.com">Datadog US1</button>
+          <button type="button" class="preset-btn" data-url="https://us3.datadoghq.com">Datadog US3</button>
+          <button type="button" class="preset-btn" data-url="https://us5.datadoghq.com">Datadog US5</button>
+          <button type="button" class="preset-btn" data-url="https://app.datadoghq.eu">Datadog EU</button>
+          <button type="button" class="preset-btn" data-url="https://app.ddog-gov.com">Datadog Gov</button>
+          <button type="button" class="preset-btn" data-url="https://demo.datadoghq.com">Datadog Demo</button>
+        </div>
+        <div id="baseUrlStatus" class="status"></div>
+      </div>
+    </div>
+
+    <!-- AI Settings -->
+    <div class="ai-settings-section">
+      <h2>🤖 AI Talk Track Generation</h2>
+      
+      <div class="ai-settings-grid">
+        <div class="ai-key-section">
+          <h3>OpenAI API Key</h3>
+          <div class="form-group">
+            <input 
+              type="password" 
+              id="openaiApiKey" 
+              placeholder="sk-..." 
+              class="api-key-input"
+            />
+            <div class="api-key-actions">
+              <button id="saveApiKeyBtn" class="control-btn">Save Key</button>
+              <button id="testApiKeyBtn" class="control-btn">Test Key</button>
+            </div>
+            <div id="apiKeyStatus" class="api-key-status"></div>
+          </div>
+          <p class="help-text">
+            Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI Platform</a>
+          </p>
+        </div>
+
+        <div class="personas-section">
+          <h3>Personas</h3>
+          <div id="personasList" class="personas-list">
+            <!-- Personas will be rendered here -->
+          </div>
+          <button id="addPersonaBtn" class="control-btn">+ Add Custom Persona</button>
+        </div>
+
+        <div class="categories-section">
+          <h3>Custom Categories</h3>
+          <p class="help-text" style="margin-top: 0; margin-bottom: 12px; opacity: 0.9;">
+            Create custom categories to organize your talk tracks beyond the default ones.
+          </p>
+          <div id="categoriesList" class="categories-list">
+            <!-- Categories will be rendered here -->
+          </div>
+          <button id="addCategoryBtn" class="control-btn">+ Add Custom Category</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- URL Pattern Tester -->
+    <div class="url-tester">
+      <h3>🧪 URL Pattern Tester</h3>
+      <div class="tester-input-group">
+        <input 
+          type="text" 
+          id="testUrl" 
+          placeholder="Enter a URL to test which talk track would match..."
+          class="test-url-input"
+        />
+        <button id="testBtn" class="test-btn">Test</button>
+      </div>
+      <div id="testResults" class="test-results">
+        <p style="color: #666;">Enter a URL to test pattern matching</p>
+      </div>
+    </div>
+
+    <div class="instructions">
+      <h3>Quick Tips:</h3>
+      <ul>
+        <li><strong>Click track title</strong> to expand/collapse</li>
+        <li><strong>Drag ⋮⋮ handle</strong> to reorder tracks</li>
+        <li><strong>Use checkboxes</strong> for bulk actions</li>
+        <li><strong>URL patterns:</strong> <code>*/dashboards/*</code>, <code>*/apm/services</code>, etc.</li>
+        <li><strong>Markdown:</strong> <code>**bold**</code>, <code>*italic*</code>, <code>- list</code>, <code>## heading</code></li>
+      </ul>
+    </div>
+
+    <div id="tracksList"></div>
+
+    <button class="add-button" id="addTrack">+ Add New Talk Track</button>
+
+    <div class="actions">
+      <button class="save-button" id="saveButton">💾 Save All Changes</button>
+      <div class="status" id="status"></div>
+    </div>
+    
+    <div id="backupInfo" class="backup-info-container"></div>
+  </div>
+
+  <link rel="stylesheet" href="quill.snow.css">
+  <script src="quill.min.js"></script>
+  <script src="marked.min.js"></script>
+  <script src="purify.min.js"></script>
+  <script src="ai-service.js"></script>
+  <script src="content-converter.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

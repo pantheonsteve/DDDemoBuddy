@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Datadog Demo Buddy - Bookmarklet Generator</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', 'Arial', sans-serif;
+      max-width: 900px;
+      margin: 40px auto;
+      padding: 20px;
+      line-height: 1.6;
+      background-color: #f5f5f5;
+    }
+    .header {
+      background-color: #632ca6;
+      color: white;
+      padding: 30px;
+      border-radius: 8px;
+      margin-bottom: 30px;
+    }
+    h1 {
+      margin: 0 0 10px 0;
+      font-size: 28px;
+    }
+    .subtitle {
+      opacity: 0.9;
+      font-size: 16px;
+    }
+    .section {
+      background: white;
+      padding: 25px;
+      margin-bottom: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h2 {
+      margin-top: 0;
+      color: #632ca6;
+      font-size: 20px;
+    }
+    .bookmarklet-link {
+      display: inline-block;
+      background-color: #7b42bc;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 16px;
+      cursor: move;
+    }
+    .bookmarklet-link:hover {
+      background-color: #632ca6;
+    }
+    .instructions {
+      background-color: #fff3cd;
+      border: 1px solid #ffc107;
+      padding: 15px;
+      border-radius: 6px;
+      margin: 15px 0;
+    }
+    .code-block {
+      background-color: #f8f9fa;
+      border: 1px solid #dee2e6;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: 'Monaco', 'Courier New', monospace;
+      font-size: 12px;
+      overflow-x: auto;
+      margin: 10px 0;
+    }
+    ol, ul {
+      padding-left: 20px;
+    }
+    li {
+      margin: 8px 0;
+    }
+    .config-section {
+      margin-top: 20px;
+    }
+    button {
+      background-color: #7b42bc;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      margin-right: 10px;
+    }
+    button:hover {
+      background-color: #632ca6;
+    }
+    input, textarea {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    textarea {
+      min-height: 100px;
+      resize: vertical;
+    }
+    .track-item {
+      border: 1px solid #ddd;
+      padding: 15px;
+      margin-bottom: 15px;
+      border-radius: 6px;
+      background-color: #f8f9fa;
+    }
+    .track-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 5px;
+      color: #333;
+    }
+    .delete-button {
+      background-color: #dc3545;
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+    .delete-button:hover {
+      background-color: #c82333;
+    }
+    .status {
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 10px;
+      font-weight: 500;
+    }
+    .status.success {
+      background-color: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .status.error {
+      background-color: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🎯 Datadog Demo Buddy</h1>
+    <div class="subtitle">Bookmarklet Version - No extension required!</div>
+  </div>
+
+  <div class="section">
+    <h2>📌 Step 1: Add the Bookmarklet</h2>
+    <p>Drag this link to your bookmarks bar:</p>
+    <p style="text-align: center; margin: 20px 0;">
+      <a href="" id="bookmarkletLink" class="bookmarklet-link">📝 Datadog Demo Buddy</a>
+    </p>
+    <div class="instructions">
+      <strong>💡 How to install:</strong>
+      <ol>
+        <li>Make sure your bookmarks bar is visible (Cmd+Shift+B on Mac, Ctrl+Shift+B on Windows)</li>
+        <li>Click and drag the button above to your bookmarks bar</li>
+        <li>That's it! Now you can click it on any page to see your talk tracks</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>⚙️ Step 2: Configure Your Talk Tracks</h2>
+    <div class="instructions" style="background-color: #e7f3ff; border-color: #2196F3;">
+      <strong>💡 Pattern Tips:</strong>
+      <ul style="margin: 8px 0 0 20px; font-size: 13px;">
+        <li><strong>Multiple patterns:</strong> Enter one pattern per line - ANY match will show the talk track</li>
+        <li><strong>Flexible matching:</strong> Use <code>*.datadoghq.com/logs*</code> to match ANY Datadog subdomain (app, demo, etc.)</li>
+        <li><strong>Simple paths:</strong> Use <code>*/logs*</code> to match any site with /logs in the URL</li>
+        <li><strong>Wildcards:</strong> <code>*</code> matches any characters in the URL</li>
+      </ul>
+    </div>
+    <div id="tracksList"></div>
+    <button onclick="addTrack()">+ Add New Talk Track</button>
+    <button onclick="saveTracks()">💾 Save All Changes</button>
+    <button onclick="testStorage()" style="background-color:#666">🔍 Test Storage</button>
+    <button onclick="copyDebugInfo()" style="background-color:#dc3545">🐛 Copy Debug Info</button>
+    <div id="status"></div>
+    <div id="debugOutput" style="display:none; margin-top:15px; padding:15px; background:#f8f9fa; border-radius:6px; font-family:monospace; font-size:12px; white-space:pre-wrap;"></div>
+  </div>
+
+  <div class="section">
+    <h2>📖 How to Use</h2>
+    <ol>
+      <li><strong>Configure</strong> your talk tracks below by adding URL patterns and content</li>
+      <li><strong>Click "Save All Changes"</strong> to store your configuration</li>
+      <li><strong>Navigate</strong> to a page (e.g., a Datadog dashboard)</li>
+      <li><strong>Click the bookmarklet</strong> in your bookmarks bar to display the matching talk track</li>
+      <li>The talk track will appear in a <strong>popup window</strong></li>
+    </ol>
+    
+    <h3>URL Pattern Examples:</h3>
+    <p><strong>Single pattern:</strong></p>
+    <ul>
+      <li><code>*demo.datadoghq.com/logs*</code></li>
+    </ul>
+    <p><strong>Multiple patterns (one per line):</strong></p>
+    <pre style="background:#f8f9fa;padding:10px;border-radius:4px;font-size:13px;margin:8px 0">*app.datadoghq.com/logs*
+*demo.datadoghq.com/logs*
+*/logs/*</pre>
+    <p style="margin-top:12px"><strong>More examples:</strong></p>
+    <ul>
+      <li><code>*.datadoghq.com/infrastructure*</code> - Any infrastructure page</li>
+      <li><code>*.datadoghq.com/profiling*</code> - Any profiling page</li>
+      <li><code>*.datadoghq.com/*</code> - ANY Datadog page</li>
+      <li><code>*github.com*</code> - Any GitHub page</li>
+    </ul>
+    <p><strong>💡 Tips:</strong></p>
+    <ul style="font-size: 14px; margin-top: 8px;">
+      <li>Patterns match the <strong>full URL</strong> including <code>https://</code></li>
+      <li>Add multiple patterns per talk track (one per line) to match variations</li>
+      <li><code>*</code> matches any characters</li>
+      <li>If ANY pattern matches, the talk track will be displayed</li>
+    </ul>
+  </div>
+
+  <script id="bookmarklet-script" type="text/plain">
+(function() {
+  'use strict';
+  console.log('[TalkTrack] Script loaded');
+  const STORAGE_KEY = 'talkTrackHelper_tracks';
+  if (window.name === 'TalkTrackHelper') {
+    console.error('[TalkTrack] ERROR: Clicked from popup window');
+    alert('Please click the bookmarklet from the page you want to track, not from this popup.');
+    return;
+  }
+  const sourceWindow = window;
+  console.log('[TalkTrack] Source window:', sourceWindow.location.href);
+  function getTracks() {
+    if (typeof EMBEDDED_TRACKS !== 'undefined') {
+      console.log('[TalkTrack] Using embedded tracks:', EMBEDDED_TRACKS.length, 'tracks');
+      return EMBEDDED_TRACKS;
+    }
+    console.error('[TalkTrack] No embedded tracks found!');
+    return [];
+  }
+  function urlMatches(url, pattern) {
+    const lowerUrl = url.toLowerCase();
+    let lowerPattern = pattern.toLowerCase().trim();
+    if (!lowerPattern.includes('*')) {
+      lowerPattern = '*' + lowerPattern + '*';
+      console.log('[TalkTrack] Auto-wildcarded pattern:', pattern, '->', lowerPattern);
+    }
+    const parts = lowerPattern.split('*').map(p => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&'));
+    let currentIndex = 0;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      if (!part) continue;
+      const foundIndex = lowerUrl.indexOf(part, currentIndex);
+      if (foundIndex === -1) {
+        console.log('[TalkTrack] Pattern match:', pattern, '-> false (part not found:', part + ')');
+        return false;
+      }
+      if (i === 0 && lowerPattern[0] !== '*' && foundIndex !== 0) {
+        console.log('[TalkTrack] Pattern match:', pattern, '-> false (must start with:', part + ')');
+        return false;
+      }
+      currentIndex = foundIndex + part.length;
+    }
+    if (lowerPattern[lowerPattern.length - 1] !== '*' && currentIndex !== lowerUrl.length) {
+      console.log('[TalkTrack] Pattern match:', pattern, '-> false (must end with last part)');
+      return false;
+    }
+    console.log('[TalkTrack] Pattern match:', pattern, '-> true');
+    return true;
+  }
+  function findMatchingTrack(url) {
+    console.log('[TalkTrack] Finding match for:', url);
+    const tracks = getTracks();
+    for (const track of tracks) {
+      const patterns = track.urlPattern.split('\n').map(p => p.trim()).filter(p => p);
+      console.log('[TalkTrack] Checking track with patterns:', patterns);
+      for (const pattern of patterns) {
+        if (urlMatches(url, pattern)) {
+          console.log('[TalkTrack] MATCH FOUND for pattern:', pattern);
+          return track;
+        }
+      }
+    }
+    console.log('[TalkTrack] No match found');
+    return null;
+  }
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+  function getContent() {
+    try {
+      const fullUrl = sourceWindow.location.href;
+      const displayUrl = sourceWindow.location.pathname + sourceWindow.location.search;
+      console.log('[TalkTrack] Getting content for URL:', fullUrl);
+      const track = findMatchingTrack(fullUrl);
+      console.log('[TalkTrack] Track result:', track ? 'Found' : 'Not found');
+      return {track: track, fullUrl: fullUrl, displayUrl: displayUrl};
+    } catch (e) {
+      console.error('[TalkTrack] Error in getContent:', e);
+      return {track: null, fullUrl: 'Error: ' + e.message, displayUrl: 'Error'};
+    }
+  }
+  function updatePopupContent(popup) {
+    try {
+      if (popup.closed) {
+        console.log('[TalkTrack] Popup closed');
+        return false;
+      }
+      const data = getContent();
+      if (popup.document.getElementById('fullUrl')) {
+        popup.document.getElementById('displayUrl').textContent = data.displayUrl;
+        popup.document.getElementById('fullUrl').textContent = data.fullUrl;
+        popup.document.getElementById('content').innerHTML = data.track ? '<div class="talk-track">' + escapeHtml(data.track.content) + '</div>' : '<div class="no-match"><p>No talk track configured for this page.</p><p style="font-size:12px;margin-top:16px">Go to the configuration page to add talk tracks.</p></div>';
+        console.log('[TalkTrack] Popup updated successfully');
+      }
+      return true;
+    } catch (e) {
+      console.error('[TalkTrack] Error updating popup:', e);
+      return false;
+    }
+  }
+  function renderPopup(popup) {
+    try {
+      console.log('[TalkTrack] Rendering popup');
+      const data = getContent();
+      const doc = popup.document;
+      doc.open();
+      doc.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Datadog Demo Buddy</title></head><body><div id="root"></div></body></html>');
+      doc.close();
+      const style = doc.createElement('style');
+      style.textContent = '* {margin: 0; padding: 0; box-sizing: border-box;} body {font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; height: 100vh; display: flex; flex-direction: column; background: #f5f5f5;} .header {background-color: #632ca6; color: white; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);} h1 {margin: 0 0 8px 0; font-size: 20px; font-weight: 600;} .current-url {font-size: 11px; opacity: 0.9; word-break: break-all; margin-top: 4px;} .url-label {font-size: 10px; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.5px;} .content {flex: 1; overflow-y: auto; padding: 20px; background: white;} .talk-track {white-space: pre-wrap; line-height: 1.8; font-size: 16px; color: #333;} .no-match {color: #c00; font-style: italic; text-align: center; padding: 60px 20px; font-weight: bold;}';
+      doc.head.appendChild(style);
+      const root = doc.getElementById('root');
+      let noTracksMsg = '';
+      if (!data.track) {
+        noTracksMsg = '<div class="no-match"><p>No talk track configured for this page.</p><p style="font-size:12px;margin-top:16px">Go to the configuration page to add talk tracks.</p><p style="color:#c00;font-weight:bold;margin-top:20px">[ERROR] No matching track found. Check your patterns in the config page.</p></div>';
+      }
+      root.innerHTML = '<div class="header"><h1>🎯 Datadog Demo Buddy</h1><div class="url-label">Current Page:</div><div class="current-url" id="displayUrl">' + escapeHtml(data.displayUrl) + '</div><div class="url-label" style="margin-top:8px">Matching Against:</div><div class="current-url" id="fullUrl">' + escapeHtml(data.fullUrl) + '</div></div><div class="content" id="content">' + (data.track ? '<div class="talk-track">' + escapeHtml(data.track.content) + '</div>' : noTracksMsg) + '</div>';
+      console.log('[TalkTrack] Popup rendered successfully');
+    } catch (e) {
+      console.error('[TalkTrack] Error rendering popup:', e);
+    }
+  }
+  try {
+    console.log('[TalkTrack] Attempting to open popup window...');
+    let popup = window.open('', 'TalkTrackHelper', 'width=500,height=600,left=100,top=100,resizable=yes,scrollbars=yes');
+    if (popup) {
+      console.log('[TalkTrack] Popup opened');
+      popup.opener = sourceWindow;
+      renderPopup(popup);
+      if (!sourceWindow._talkTrackInterval) {
+        console.log('[TalkTrack] Starting update interval');
+        sourceWindow._talkTrackInterval = setInterval(function() {
+          if (!popup || popup.closed) {
+            console.log('[TalkTrack] Popup closed, stopping interval');
+            clearInterval(sourceWindow._talkTrackInterval);
+            sourceWindow._talkTrackInterval = null;
+          } else {
+            updatePopupContent(popup);
+          }
+        }, 500);
+      }
+      popup.focus();
+    } else {
+      console.error('[TalkTrack] Failed to open popup');
+      alert('[TalkTrack] ERROR: Popup window could not be opened. Please allow popups for this site.');
+    }
+  } catch (e) {
+    console.error('[TalkTrack] Fatal error:', e);
+    alert('[TalkTrack] Fatal error: ' + e.message);
+  }
+})();
+  </script>
+  
+  <script>
+    // Configuration management
+    const STORAGE_KEY = 'talkTrackHelper_tracks';
+    let tracks = [];
+    
+    function updateBookmarkletLink() {
+      // Get the tracks to embed
+      const stored = localStorage.getItem(STORAGE_KEY);
+      const tracksJson = stored || '[]';
+      const tracksData = JSON.parse(tracksJson);
+      
+      // Get the base script
+      const scriptContent = document.getElementById('bookmarklet-script').textContent.trim();
+      
+      // Replace the getTracks function with one that returns embedded data
+      const modifiedScript = scriptContent.replace(
+        'function getTracks() {\n    if (typeof EMBEDDED_TRACKS !== \'undefined\') {\n      console.log(\'[TalkTrack] Using embedded tracks:\', EMBEDDED_TRACKS.length, \'tracks\');\n      return EMBEDDED_TRACKS;\n    }\n    console.error(\'[TalkTrack] No embedded tracks found!\');\n    return [];\n  }',
+        'function getTracks() { return ' + JSON.stringify(tracksData) + '; }'
+      );
+      
+      // Create bookmarklet
+      const bookmarkletCode = 'javascript:' + encodeURIComponent(modifiedScript);
+      
+      document.getElementById('bookmarkletLink').href = bookmarkletCode;
+      
+      console.log('[Config] Bookmarklet updated with', tracksData.length, 'embedded tracks');
+    }
+
+    // Set initial bookmarklet link
+    updateBookmarkletLink();
+
+    function loadTracks() {
+      try {
+        tracks = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+      } catch {
+        tracks = [];
+      }
+      
+      if (tracks.length === 0) {
+        tracks = [{
+          id: Date.now(),
+          urlPattern: '',
+          content: ''
+        }];
+      }
+      renderTracks();
+    }
+
+    window.addTrack = function() {
+      tracks.push({
+        id: Date.now(),
+        urlPattern: '',
+        content: ''
+      });
+      renderTracks();
+    }
+
+    window.deleteTrack = function(id) {
+      tracks = tracks.filter(track => track.id !== id);
+      renderTracks();
+    }
+
+    window.saveTracks = function() {
+      const tracksData = [];
+      
+      for (const track of tracks) {
+        const urlPattern = document.getElementById(`url-${track.id}`).value.trim();
+        const content = document.getElementById(`content-${track.id}`).value.trim();
+        
+        if (urlPattern) {
+          tracksData.push({
+            id: track.id,
+            urlPattern,
+            content
+          });
+        }
+      }
+
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(tracksData));
+        tracks = tracksData;
+        console.log('[Config] Saved to localStorage:', tracksData);
+        updateBookmarkletLink();
+        showStatus('Settings saved successfully! Your bookmarklet will automatically use these new settings.', false);
+      } catch (error) {
+        console.error('[Config] Error saving:', error);
+        showStatus('Error saving settings: ' + error.message, true);
+      }
+    }
+
+    window.testStorage = function() {
+      try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        const parsed = JSON.parse(stored || '[]');
+        console.log('[Config] Storage test - Raw:', stored);
+        console.log('[Config] Storage test - Parsed:', parsed);
+        alert(`Found ${parsed.length} tracks in storage. Check console for details.`);
+      } catch (error) {
+        console.error('[Config] Storage test error:', error);
+        alert('Error reading storage: ' + error.message);
+      }
+    }
+
+    window.copyDebugInfo = function() {
+      try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        const parsed = JSON.parse(stored || '[]');
+        
+        let debugInfo = '=== TALK TRACK DEBUG INFO ===\n\n';
+        debugInfo += `Tracks in localStorage: ${parsed.length}\n\n`;
+        
+        if (parsed.length > 0) {
+          parsed.forEach((track, i) => {
+            debugInfo += `Track #${i + 1}:\n`;
+            debugInfo += `  Patterns:\n`;
+            const patterns = track.urlPattern.split('\n').map(p => p.trim()).filter(p => p);
+            patterns.forEach(p => debugInfo += `    - "${p}"\n`);
+            debugInfo += `  Content length: ${track.content.length} chars\n\n`;
+          });
+        } else {
+          debugInfo += 'NO TRACKS FOUND!\n';
+          debugInfo += 'Please add a track and click "Save All Changes"\n\n';
+        }
+        
+        debugInfo += '=== BOOKMARKLET STATUS ===\n';
+        const bookmarkletHref = document.getElementById('bookmarkletLink').href;
+        debugInfo += `Bookmarklet length: ${bookmarkletHref.length} chars\n`;
+        debugInfo += `Contains "getTracks": ${bookmarkletHref.includes('getTracks')}\n`;
+        debugInfo += `Contains "STORAGE_KEY": ${bookmarkletHref.includes('STORAGE_KEY')}\n\n`;
+        
+        debugInfo += '=== INSTRUCTIONS ===\n';
+        debugInfo += '1. Add a track with pattern: *logs*\n';
+        debugInfo += '2. Add some content text\n';
+        debugInfo += '3. Click "Save All Changes"\n';
+        debugInfo += '4. Drag the bookmarklet to your toolbar\n';
+        debugInfo += '5. Go to any page with "logs" in the URL\n';
+        debugInfo += '6. Click the bookmarklet\n\n';
+        
+        const debugEl = document.getElementById('debugOutput');
+        debugEl.textContent = debugInfo;
+        debugEl.style.display = 'block';
+        
+        navigator.clipboard.writeText(debugInfo);
+        showStatus('Debug info copied to clipboard and shown below!', false);
+      } catch (error) {
+        showStatus('Error generating debug info: ' + error.message, true);
+      }
+    }
+
+    function showStatus(message, isError = false) {
+      const status = document.getElementById('status');
+      status.textContent = message;
+      status.className = isError ? 'status error' : 'status success';
+      
+      setTimeout(() => {
+        status.textContent = '';
+        status.className = 'status';
+      }, 5000);
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function renderTracks() {
+      const tracksList = document.getElementById('tracksList');
+      
+      tracksList.innerHTML = tracks.map((track, index) => `
+        <div class="track-item">
+          <div class="track-header">
+            <div style="font-weight: 600;">Talk Track #${index + 1}</div>
+            <button class="delete-button" onclick="deleteTrack(${track.id})">Delete</button>
+          </div>
+          
+          <div class="form-group">
+            <label for="url-${track.id}">URL Patterns (one per line, matches full URL including https://)</label>
+            <textarea 
+              id="url-${track.id}" 
+              style="min-height:80px;font-family:monospace;font-size:13px"
+              placeholder="Enter one or more patterns, one per line:
+*.datadoghq.com/logs*
+*/logs*
+*github.com*"
+            >${escapeHtml(track.urlPattern)}</textarea>
+          </div>
+          
+          <div class="form-group">
+            <label for="content-${track.id}">Talk Track Content</label>
+            <textarea 
+              id="content-${track.id}"
+              placeholder="Enter your talk track here..."
+            >${escapeHtml(track.content)}</textarea>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Initialize
+    loadTracks();
+  </script>
+</body>
+</html>
