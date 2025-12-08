@@ -1,14 +1,16 @@
 {
   "manifest_version": 3,
   "name": "Datadog Demo Buddy",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Your Datadog demo companion - display talk tracks based on current page URL with AI-powered generation",
   "permissions": [
     "storage",
+    "unlimitedStorage",
     "activeTab",
     "tabs",
     "scripting",
-    "tabCapture"
+    "tabCapture",
+    "offscreen"
   ],
   "host_permissions": [
     "<all_urls>"

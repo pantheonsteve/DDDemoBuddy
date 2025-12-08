@@ -60,9 +60,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
   }
 
+  // Forward offscreen document messages (these come from screenshot-service via popup)
+  if (message.type === 'STITCH_SCREENSHOTS' || message.type === 'RESIZE_IMAGE') {
+    // Let the offscreen document handle these - don't process here
+    // Return false to allow message to propagate to other listeners (offscreen doc)
+    return false;
+  }
+
   if (message.type === 'CAPTURE_SCREENSHOT') {
     // Handle screenshot capture request
-    handleScreenshotCapture(message.tabId)
+    const fullPage = message.fullPage !== false; // Default to full page
+    
+    handleScreenshotCapture(message.tabId, fullPage, (progress) => {
+      // Send progress updates to the popup
+      chrome.runtime.sendMessage({
+        type: 'SCREENSHOT_PROGRESS',
+        ...progress
+      }).catch(() => {
+        // Popup might not be listening
+      });
+    })
       .then(dataUrl => {
         sendResponse({ success: true, dataUrl: dataUrl });
       })
@@ -72,10 +89,67 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
     return true; // Keep message channel open for async response
   }
+
+  if (message.type === 'NAVIGATE_TAB') {
+    // Handle navigation request - navigate the active tab to a new URL
+    handleNavigateTab(message.url)
+      .then(() => {
+        sendResponse({ success: true });
+      })
+      .catch(error => {
+        console.error('Navigation error:', error);
+        sendResponse({ success: false, error: error.message });
+      });
+    return true; // Keep message channel open for async response
+  }
 });
 
+// Navigation handler - navigate the active tab to a new URL
+async function handleNavigateTab(url) {
+  try {
+    // Get the active tab in the last focused window (excluding the popup)
+    const windows = await chrome.windows.getAll({ windowTypes: ['normal'] });
+    
+    // Find the most recently focused normal window
+    let targetWindow = null;
+    for (const win of windows) {
+      if (win.id !== popupWindowId && win.focused) {
+        targetWindow = win;
+        break;
+      }
+    }
+    
+    // If no focused window, just get the first normal window
+    if (!targetWindow) {
+      targetWindow = windows.find(w => w.id !== popupWindowId);
+    }
+    
+    if (!targetWindow) {
+      throw new Error('No browser window found');
+    }
+    
+    // Get the active tab in that window
+    const [activeTab] = await chrome.tabs.query({ 
+      active: true, 
+      windowId: targetWindow.id 
+    });
+    
+    if (!activeTab) {
+      throw new Error('No active tab found');
+    }
+    
+    // Navigate the tab
+    await chrome.tabs.update(activeTab.id, { url: url });
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error in handleNavigateTab:', error);
+    throw error;
+  }
+}
+
 // Screenshot capture handler
-async function handleScreenshotCapture(tabId) {
+async function handleScreenshotCapture(tabId, fullPage = true, onProgress = null) {
   try {
     if (!screenshotService) {
       screenshotService = new ScreenshotService();
@@ -88,9 +162,14 @@ async function handleScreenshotCapture(tabId) {
     // Small delay to ensure tab is fully activated
     await new Promise(resolve => setTimeout(resolve, 150));
     
-    // Use the screenshot service to capture the viewport
-    // The service will get the windowId from the tab
-    const dataUrl = await screenshotService.captureFullPage(tabId);
+    // Use the screenshot service to capture
+    let dataUrl;
+    if (fullPage) {
+      dataUrl = await screenshotService.captureFullPage(tabId, onProgress);
+    } else {
+      dataUrl = await screenshotService.captureViewport(tabId);
+    }
+    
     return dataUrl;
   } catch (error) {
     console.error('Error in handleScreenshotCapture:', error);

@@ -9,10 +9,14 @@ class TalkTrackApp {
     this.selectedPersona = null;
     this.generatedContent = null;
     this.categories = [];
+    this.customers = []; // Customer profiles
+    this.selectedCustomer = null; // Currently selected customer for demo
     this.baseUrl = 'https://app.datadoghq.com'; // Default base URL
     this.quillEditor = null; // Quill editor instance
     this.aiService = new AIService();
     this.screenshotService = new ScreenshotService();
+    this.storageManager = null; // Will be initialized in initCloudSync
+    this.syncStatus = { configured: false, lastSync: null, pendingChanges: false };
     this.init();
   }
 
@@ -22,8 +26,122 @@ class TalkTrackApp {
     await this.loadTalkTracks();
     await this.loadCategories();
     await this.loadPersonas();
+    await this.loadCustomers();
+    await this.initCloudSync();
     await this.getCurrentTabUrl();
     this.setupListeners();
+  }
+
+  async initCloudSync() {
+    try {
+      // Check if StorageManager is available (might not be if script loading failed)
+      if (typeof StorageManager === 'undefined') {
+        console.warn('StorageManager not available - cloud sync disabled');
+        this.storageManager = null;
+        return;
+      }
+      
+      if (!this.storageManager) {
+        this.storageManager = new StorageManager();
+      }
+      
+      await this.storageManager.init();
+      await this.updateSyncStatus();
+      
+      // Listen for sync events
+      this.storageManager.addListener((eventType, data) => {
+        this.handleSyncEvent(eventType, data);
+      });
+    } catch (error) {
+      console.error('Cloud sync init error:', error);
+      // Don't let cloud sync errors break the app
+      this.storageManager = null;
+    }
+  }
+
+  handleSyncEvent(eventType, data) {
+    switch (eventType) {
+      case 'syncCompleted':
+      case 'syncError':
+      case 'pendingSync':
+      case 'configured':
+      case 'disconnected':
+        this.updateSyncStatus();
+        break;
+    }
+  }
+
+  async updateSyncStatus() {
+    try {
+      if (!this.storageManager) {
+        this.syncStatus = { configured: false, lastSync: null, pendingChanges: false };
+        this.renderSyncIndicator();
+        return;
+      }
+      
+      const status = await this.storageManager.getSyncStatus();
+      this.syncStatus = {
+        configured: status.isConfigured,
+        lastSync: status.lastSync,
+        pendingChanges: status.pendingChanges,
+        syncInProgress: status.syncInProgress
+      };
+      this.renderSyncIndicator();
+    } catch (error) {
+      console.error('Error updating sync status:', error);
+    }
+  }
+
+  renderSyncIndicator() {
+    const indicator = document.getElementById('syncIndicator');
+    if (!indicator) return;
+
+    if (!this.syncStatus.configured) {
+      indicator.innerHTML = '';
+      indicator.title = 'Cloud sync not configured';
+      return;
+    }
+
+    let icon = '☁️';
+    let statusClass = 'synced';
+    let title = 'Synced to cloud';
+
+    if (this.syncStatus.syncInProgress) {
+      icon = '🔄';
+      statusClass = 'syncing';
+      title = 'Syncing...';
+    } else if (this.syncStatus.pendingChanges) {
+      icon = '⏳';
+      statusClass = 'pending';
+      title = 'Changes pending sync';
+    } else if (this.syncStatus.lastSync) {
+      const lastSyncDate = new Date(this.syncStatus.lastSync);
+      title = `Last synced: ${lastSyncDate.toLocaleString()}`;
+    }
+
+    indicator.innerHTML = `<span class="sync-icon ${statusClass}">${icon}</span>`;
+    indicator.title = title;
+  }
+
+  /**
+   * Save tracks and trigger cloud sync if configured
+   */
+  async saveTracksWithSync(reason = 'Manual save') {
+    try {
+      // Always save to local storage first
+      await chrome.storage.local.set({ talkTracks: this.talkTracks });
+      console.log('Tracks saved to local storage:', this.talkTracks.length, 'tracks');
+      
+      // Trigger cloud sync if configured
+      if (this.storageManager && this.storageManager.gistService && this.storageManager.gistService.isConfigured()) {
+        this.storageManager.debouncedSync(this.talkTracks);
+        this.updateSyncStatus();
+      }
+    } catch (error) {
+      console.error('Error saving tracks:', error);
+      alert('Error saving track: ' + error.message);
+      throw error;
+    }
   }
 
   async loadSettings() {
@@ -41,6 +159,26 @@ class TalkTrackApp {
     const customCategories = result.customCategories || [];
     
     this.categories = [...defaultCategories, ...customCategories];
+  }
+
+  async loadCustomers() {
+    const result = await chrome.storage.local.get(['customers', 'selectedCustomerId']);
+    this.customers = result.customers || [];
+    
+    // Load the previously selected customer
+    if (result.selectedCustomerId) {
+      this.selectedCustomer = this.customers.find(c => c.id === result.selectedCustomerId) || null;
+    }
+  }
+
+  async setSelectedCustomer(customerId) {
+    this.selectedCustomer = customerId ? this.customers.find(c => c.id === customerId) : null;
+    await chrome.storage.local.set({ selectedCustomerId: customerId || null });
+    this.render();
+  }
+
+  getCustomerById(id) {
+    return this.customers.find(c => c.id === id);
   }
 
   isMatchingBaseUrl(url) {
@@ -127,7 +265,77 @@ class TalkTrackApp {
       if (changes.customPersonas) {
         this.loadPersonas();
       }
+      if (changes.customers) {
+        this.customers = changes.customers.newValue || [];
+        // Clear selection if customer was deleted
+        if (this.selectedCustomer && !this.customers.find(c => c.id === this.selectedCustomer.id)) {
+          this.selectedCustomer = null;
+        }
+        if (!this.aiMode && !this.editMode) {
+          this.render();
+        }
+      }
     });
+
+    // Listen for screenshot progress updates
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message.type === 'SCREENSHOT_PROGRESS') {
+        this.updateCaptureProgress(message);
+      }
+    });
+
+    // Delegated click handler for navigation buttons
+    document.addEventListener('click', (e) => {
+      if (e.target.classList.contains('nav-button')) {
+        e.preventDefault();
+        const url = e.target.getAttribute('data-nav-url');
+        if (url) {
+          this.navigateActiveTab(url);
+        }
+      }
+    });
+  }
+
+  /**
+   * Navigate the active browser tab to a new URL
+   */
+  async navigateActiveTab(url) {
+    try {
+      // Send message to background script to navigate the active tab
+      const response = await chrome.runtime.sendMessage({
+        type: 'NAVIGATE_TAB',
+        url: url
+      });
+      
+      if (!response?.success) {
+        console.error('Navigation failed:', response?.error);
+        this.showNotification('Navigation failed', 'error');
+      }
+    } catch (error) {
+      console.error('Error navigating tab:', error);
+      this.showNotification('Navigation failed', 'error');
+    }
+  }
+
+  /**
+   * Show a brief notification
+   */
+  showNotification(message, type = 'success') {
+    const existing = document.querySelector('.popup-notification');
+    if (existing) existing.remove();
+    
+    const notification = document.createElement('div');
+    notification.className = 'popup-notification';
+    notification.textContent = message;
+    if (type === 'error') {
+      notification.style.backgroundColor = '#dc3545';
+    }
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+      notification.classList.add('fade-out');
+      setTimeout(() => notification.remove(), 300);
+    }, 2000);
   }
 
   toggleAiMode() {
@@ -170,7 +378,8 @@ class TalkTrackApp {
         title: pageTitle,
         category: this.inferCategory(this.currentUrl),
         urlPattern: this.createUrlPattern(this.currentUrl),
-        content: ''
+        content: '',
+        customerId: this.selectedCustomer?.id || null // Tag with selected customer
       };
     }
     
@@ -197,15 +406,27 @@ class TalkTrackApp {
       theme: 'snow',
       placeholder: 'Write your talk track here...',
       modules: {
-        toolbar: [
-          [{ 'header': [2, 3, false] }],
-          ['bold', 'italic', 'underline'],
-          [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-          ['blockquote'],
-          ['clean']
-        ]
+        toolbar: {
+          container: [
+            [{ 'header': [2, 3, false] }],
+            ['bold', 'italic', 'underline'],
+            [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+            ['blockquote'],
+            ['link', 'insertNavLink'],
+            ['clean']
+          ],
+          handlers: {
+            'insertNavLink': () => this.insertNavigationLink()
+          }
+        }
       }
     });
+
+    // Add tooltip to the custom button
+    const navLinkBtn = document.querySelector('.ql-insertNavLink');
+    if (navLinkBtn) {
+      navLinkBtn.title = 'Insert Navigation Link';
+    }
 
     // Load initial content using Quill's clipboard for proper Delta conversion
     if (this.editingTrack?.content) {
@@ -336,11 +557,13 @@ class TalkTrackApp {
       this.editingTrack.htmlBackup = html; // Keep HTML backup in case conversion has issues
     }
     
-    // Get title and category from form
+    // Get title, category, and customer from form
     const titleInput = document.getElementById('editTitle');
     const categorySelect = document.getElementById('editCategory');
+    const customerSelect = document.getElementById('editCustomer');
     if (titleInput) this.editingTrack.title = titleInput.value.trim();
     if (categorySelect) this.editingTrack.category = categorySelect.value;
+    if (customerSelect) this.editingTrack.customerId = customerSelect.value || null;
     
     const isNew = !this.editingTrack.id;
     
@@ -357,7 +580,7 @@ class TalkTrackApp {
       this.talkTracks.push(this.editingTrack);
     }
     
-    await chrome.storage.local.set({ talkTracks: this.talkTracks });
+    await this.saveTracksWithSync(isNew ? 'Created new track' : 'Updated track');
     
     console.log('Saved track:', this.editingTrack);
     this.showNotification(isNew ? 'New talk track created!' : 'Talk track saved!');
@@ -438,15 +661,23 @@ class TalkTrackApp {
 
       console.log('Screenshot captured successfully, generating talk track...');
 
-      // Generate talk track
+      // Prepare customer context if a customer is selected
+      const customerContext = this.selectedCustomer ? {
+        name: this.selectedCustomer.name,
+        industry: this.selectedCustomer.industry,
+        discoveryNotes: this.selectedCustomer.discoveryNotes
+      } : null;
+
+      // Generate talk track (pass customer context if available)
       const generated = await this.aiService.generateTalkTrack(
         response.dataUrl,
         this.selectedPersona,
         this.currentUrl || targetTab.url,
-        apiKey
+        apiKey,
+        customerContext
       );
 
-      console.log('Talk track generated successfully');
+      console.log('Talk track generated successfully', customerContext ? `(for ${customerContext.name})` : '(generic)');
 
       this.generatedContent = generated;
       this.showLoading(false);
@@ -473,12 +704,14 @@ class TalkTrackApp {
         category: category,
         urlPattern: urlPattern,
         content: this.generatedContent.content,
+        customerId: this.selectedCustomer?.id || null, // Tag with selected customer
         order: this.talkTracks.length
       };
 
       this.talkTracks.push(newTrack);
-      await chrome.storage.local.set({ talkTracks: this.talkTracks });
-      alert('New talk track saved successfully!');
+      await this.saveTracksWithSync('AI generated track');
+      const customerNote = this.selectedCustomer ? ` (for ${this.selectedCustomer.name})` : '';
+      alert(`New talk track saved successfully${customerNote}!`);
       
     } else if (action === 'append') {
       // Append to existing track
@@ -492,7 +725,7 @@ class TalkTrackApp {
 
       // Append with a separator
       existingTrack.content = existingTrack.content + '\n\n---\n\n' + this.generatedContent.content;
-      await chrome.storage.local.set({ talkTracks: this.talkTracks });
+      await this.saveTracksWithSync('AI content appended');
       alert('Content appended to existing talk track!');
       
     } else if (action === 'replace') {
@@ -511,7 +744,7 @@ class TalkTrackApp {
 
       existingTrack.content = this.generatedContent.content;
       existingTrack.title = this.generatedContent.title || existingTrack.title;
-      await chrome.storage.local.set({ talkTracks: this.talkTracks });
+      await this.saveTracksWithSync('AI replaced track');
       alert('Existing talk track replaced!');
     }
 
@@ -550,17 +783,57 @@ class TalkTrackApp {
     }
   }
 
-  showLoading(show) {
-    const root = document.getElementById('root');
+  showLoading(show, message = null) {
     const loadingEl = document.getElementById('aiLoadingIndicator');
     const generateBtn = document.getElementById('captureGenerateBtn');
+    const loadingMessage = document.getElementById('loadingMessage');
+    const loadingSubtext = document.getElementById('loadingSubtext');
+    const captureProgress = document.getElementById('captureProgress');
     
     if (loadingEl) {
       loadingEl.style.display = show ? 'block' : 'none';
     }
     if (generateBtn) {
       generateBtn.disabled = show;
-      generateBtn.textContent = show ? 'Generating...' : '📸 Capture & Generate';
+      const customerText = this.selectedCustomer ? ` for ${this.escapeHtml(this.selectedCustomer.name)}` : '';
+      generateBtn.textContent = show ? 'Generating...' : `📸 Capture & Generate${customerText}`;
+    }
+    if (loadingMessage && message) {
+      loadingMessage.textContent = message;
+    }
+    if (!show && captureProgress) {
+      captureProgress.style.display = 'none';
+    }
+    if (!show && loadingMessage) {
+      loadingMessage.textContent = 'Analyzing page and generating talk track...';
+    }
+    if (!show && loadingSubtext) {
+      loadingSubtext.textContent = 'This may take 10-30 seconds';
+    }
+  }
+
+  updateCaptureProgress(progress) {
+    const captureProgress = document.getElementById('captureProgress');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
+    const loadingMessage = document.getElementById('loadingMessage');
+    const loadingSubtext = document.getElementById('loadingSubtext');
+    
+    if (captureProgress) {
+      captureProgress.style.display = 'block';
+    }
+    if (progressFill && progress.total > 0) {
+      const percent = (progress.current / progress.total) * 100;
+      progressFill.style.width = `${percent}%`;
+    }
+    if (progressText && progress.message) {
+      progressText.textContent = progress.message;
+    }
+    if (loadingMessage) {
+      loadingMessage.textContent = 'Capturing full page screenshot...';
+    }
+    if (loadingSubtext) {
+      loadingSubtext.textContent = `Section ${progress.current} of ${progress.total}`;
     }
   }
 
@@ -595,12 +868,32 @@ class TalkTrackApp {
   }
 
   findMatchingTalkTrack() {
-    for (const track of this.talkTracks) {
-      if (this.urlMatches(this.currentUrl, track.urlPattern)) {
-        return track;
-      }
+    // Smart track matching with customer priority:
+    // 1. If customer selected: find customer-specific track first
+    // 2. Fall back to generic track if no customer-specific match
+    // 3. If no customer selected: use generic tracks only
+    
+    const matchingTracks = this.talkTracks.filter(track => 
+      this.urlMatches(this.currentUrl, track.urlPattern)
+    );
+    
+    if (matchingTracks.length === 0) return null;
+    
+    if (this.selectedCustomer) {
+      // Look for customer-specific track first
+      const customerTrack = matchingTracks.find(track => 
+        track.customerId === this.selectedCustomer.id
+      );
+      if (customerTrack) return customerTrack;
+      
+      // Fall back to generic track
+      const genericTrack = matchingTracks.find(track => !track.customerId);
+      return genericTrack || null;
+    } else {
+      // No customer selected - use generic tracks only
+      const genericTrack = matchingTracks.find(track => !track.customerId);
+      return genericTrack || null;
     }
-    return null;
   }
 
   urlMatches(url, pattern) {
@@ -646,6 +939,7 @@ class TalkTrackApp {
           <div class="header-top">
             <h1>Demo Buddy</h1>
             <div class="header-buttons">
+              <div id="syncIndicator" class="sync-indicator" title="Cloud sync status"></div>
               <button id="aiModeToggle" class="ai-toggle-btn" title="AI Generation Mode">
                 🤖
               </button>
@@ -654,7 +948,22 @@ class TalkTrackApp {
               </button>
             </div>
           </div>
-          <div class="current-url">${this.getDisplayUrl() || 'No page loaded'}</div>
+          ${this.customers.length > 0 ? `
+            <div class="customer-selector">
+              <select id="customerSelect" class="customer-dropdown" title="Select customer for tailored talk tracks">
+                <option value="">Generic Demo</option>
+                ${this.customers.map(c => `
+                  <option value="${c.id}" ${this.selectedCustomer?.id === c.id ? 'selected' : ''}>
+                    👤 ${this.escapeHtml(c.name)}
+                  </option>
+                `).join('')}
+              </select>
+              ${this.selectedCustomer ? `
+                <span class="customer-indicator" style="background-color: ${this.selectedCustomer.color}" title="${this.escapeHtml(this.selectedCustomer.name)}"></span>
+              ` : ''}
+            </div>
+          ` : ''}
+          <div class="current-url" title="${this.escapeHtml(this.getDisplayUrl() || '')}">${this.getDisplayUrl() || 'No page loaded'}</div>
         </div>
         <div class="content">
           ${matchingTrack ? `
@@ -694,6 +1003,11 @@ class TalkTrackApp {
       aiToggleBtn.addEventListener('click', () => this.toggleAiMode());
     }
 
+    const customerSelect = document.getElementById('customerSelect');
+    if (customerSelect) {
+      customerSelect.addEventListener('change', (e) => this.setSelectedCustomer(e.target.value));
+    }
+
     const createTrackBtn = document.getElementById('createTrackBtn');
     if (createTrackBtn) {
       createTrackBtn.addEventListener('click', () => this.enterEditMode());
@@ -713,6 +1027,9 @@ class TalkTrackApp {
     if (editTrackBtn && matchingTrack) {
       editTrackBtn.addEventListener('click', () => this.enterEditMode(matchingTrack));
     }
+
+    // Render sync indicator
+    this.renderSyncIndicator();
   }
 
   renderEditMode(root) {
@@ -728,7 +1045,7 @@ class TalkTrackApp {
               ✕
             </button>
           </div>
-          <div class="current-url">${this.getDisplayUrl() || 'No page loaded'}</div>
+          <div class="current-url" title="${this.escapeHtml(this.getDisplayUrl() || '')}">${this.getDisplayUrl() || 'No page loaded'}</div>
         </div>
         
         <div class="edit-form">
@@ -752,6 +1069,20 @@ class TalkTrackApp {
               `).join('')}
             </select>
           </div>
+          
+          ${this.customers.length > 0 ? `
+            <div class="form-group">
+              <label for="editCustomer">Customer <span class="label-hint">(optional)</span></label>
+              <select id="editCustomer" class="customer-edit-select">
+                <option value="">Generic (all customers)</option>
+                ${this.customers.map(c => `
+                  <option value="${c.id}" ${this.editingTrack?.customerId === c.id ? 'selected' : ''}>
+                    👤 ${this.escapeHtml(c.name)}${c.industry ? ` (${this.escapeHtml(c.industry)})` : ''}
+                  </option>
+                `).join('')}
+              </select>
+            </div>
+          ` : ''}
           
           <div class="form-group">
             <label for="editUrlPattern">URL Pattern</label>
@@ -840,6 +1171,11 @@ class TalkTrackApp {
       categorySelect.addEventListener('change', (e) => this.updateEditingTrack('category', e.target.value));
     }
 
+    const customerSelect = document.getElementById('editCustomer');
+    if (customerSelect) {
+      customerSelect.addEventListener('change', (e) => this.updateEditingTrack('customerId', e.target.value || null));
+    }
+
     const urlPatternInput = document.getElementById('editUrlPattern');
     if (urlPatternInput) {
       urlPatternInput.addEventListener('input', (e) => this.updateEditingTrack('urlPattern', e.target.value));
@@ -867,7 +1203,7 @@ class TalkTrackApp {
     }
     
     this.talkTracks = this.talkTracks.filter(t => t.id !== this.editingTrack.id);
-    await chrome.storage.local.set({ talkTracks: this.talkTracks });
+    await this.saveTracksWithSync('Deleted track');
     
     this.showNotification('Talk track deleted');
     this.exitEditMode();
@@ -903,6 +1239,41 @@ Has data-list: ${html.includes('data-list')}
       console.log(debugInfo);
       prompt('Copy this debug info:', html);
     });
+  }
+
+  /**
+   * Insert a navigation link at the current cursor position in the Quill editor
+   */
+  insertNavigationLink() {
+    if (!this.quillEditor) {
+      alert('Editor not initialized');
+      return;
+    }
+
+    // Prompt for link text
+    const linkText = prompt('Enter the link text (e.g., "Go to Dashboard"):');
+    if (!linkText) return;
+
+    // Prompt for URL path
+    const urlPath = prompt('Enter the URL path (e.g., "/dashboard/abc-123" or "https://..."):');
+    if (!urlPath) return;
+
+    // Build the full URL
+    const fullUrl = this.buildFullUrl(urlPath);
+
+    // Get current selection or cursor position
+    const range = this.quillEditor.getSelection(true);
+    
+    if (range) {
+      // Insert the link at cursor position
+      this.quillEditor.insertText(range.index, linkText, 'link', fullUrl);
+      // Move cursor after the inserted text
+      this.quillEditor.setSelection(range.index + linkText.length);
+    } else {
+      // If no selection, append to end
+      const length = this.quillEditor.getLength();
+      this.quillEditor.insertText(length - 1, linkText, 'link', fullUrl);
+    }
   }
 
   applyFormatting(textarea, format) {
@@ -966,9 +1337,34 @@ Has data-list: ${html.includes('data-list')}
               ← Back
             </button>
           </div>
-          <div class="current-url">${this.getDisplayUrl() || 'No page loaded'}</div>
+          ${this.customers.length > 0 ? `
+            <div class="customer-selector">
+              <select id="customerSelectAi" class="customer-dropdown" title="Generate for specific customer">
+                <option value="">Generic Demo</option>
+                ${this.customers.map(c => `
+                  <option value="${c.id}" ${this.selectedCustomer?.id === c.id ? 'selected' : ''}>
+                    👤 ${this.escapeHtml(c.name)}
+                  </option>
+                `).join('')}
+              </select>
+              ${this.selectedCustomer ? `
+                <span class="customer-indicator" style="background-color: ${this.selectedCustomer.color}"></span>
+              ` : ''}
+            </div>
+          ` : ''}
+          <div class="current-url" title="${this.escapeHtml(this.getDisplayUrl() || '')}">${this.getDisplayUrl() || 'No page loaded'}</div>
         </div>
         <div class="content ai-generation-panel">
+          ${this.selectedCustomer ? `
+            <div class="customer-context-notice">
+              <strong>🎯 Generating for: ${this.escapeHtml(this.selectedCustomer.name)}</strong>
+              ${this.selectedCustomer.industry ? `<span class="industry-tag">${this.escapeHtml(this.selectedCustomer.industry)}</span>` : ''}
+              ${this.selectedCustomer.discoveryNotes ? `
+                <p class="discovery-preview">${this.escapeHtml(this.selectedCustomer.discoveryNotes.substring(0, 150))}${this.selectedCustomer.discoveryNotes.length > 150 ? '...' : ''}</p>
+              ` : '<p class="no-notes">No discovery notes added yet</p>'}
+            </div>
+          ` : ''}
+          
           <div class="form-group">
             <label for="personaSelect">Select Persona</label>
             <select id="personaSelect" class="persona-select">
@@ -982,13 +1378,19 @@ Has data-list: ${html.includes('data-list')}
           </div>
 
           <button id="captureGenerateBtn" class="ai-generate-btn">
-            📸 Capture & Generate
+            📸 Capture & Generate${this.selectedCustomer ? ` for ${this.escapeHtml(this.selectedCustomer.name)}` : ''}
           </button>
 
           <div id="aiLoadingIndicator" class="ai-loading" style="display:none">
             <div class="spinner"></div>
-            <p>Analyzing page and generating talk track...</p>
-            <p class="loading-subtext">This may take 10-30 seconds</p>
+            <p id="loadingMessage">Analyzing page and generating talk track...</p>
+            <p id="loadingSubtext" class="loading-subtext">This may take 10-30 seconds</p>
+            <div id="captureProgress" class="capture-progress" style="display:none">
+              <div class="progress-bar">
+                <div id="progressFill" class="progress-fill"></div>
+              </div>
+              <p id="progressText" class="progress-text"></p>
+            </div>
           </div>
 
           ${this.generatedContent ? this.renderSaveOptions() : ''}
@@ -1008,6 +1410,11 @@ Has data-list: ${html.includes('data-list')}
     const personaSelect = document.getElementById('personaSelect');
     if (personaSelect) {
       personaSelect.addEventListener('change', (e) => this.onPersonaChange(e));
+    }
+
+    const customerSelectAi = document.getElementById('customerSelectAi');
+    if (customerSelectAi) {
+      customerSelectAi.addEventListener('change', (e) => this.setSelectedCustomer(e.target.value));
     }
 
     const generateBtn = document.getElementById('captureGenerateBtn');
@@ -1093,16 +1500,103 @@ Has data-list: ${html.includes('data-list')}
       gfm: true,     // GitHub Flavored Markdown
     });
     
+    // Pre-process: Convert custom color markers to HTML spans before markdown parsing
+    let processedText = text
+      .replace(/\[\[VALUE\]\](.*?)\[\[\/VALUE\]\]/gs, '<span class="value-highlight">$1</span>')
+      .replace(/\[\[OUTCOME\]\](.*?)\[\[\/OUTCOME\]\]/gs, '<span class="outcome-highlight">$1</span>');
+    
     // Parse markdown to HTML
-    const rawHtml = marked.parse(text);
+    const rawHtml = marked.parse(processedText);
     
     // Sanitize HTML to prevent XSS attacks
     const cleanHtml = DOMPurify.sanitize(rawHtml, {
-      ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'u', 'strike', 'del', 'p', 'br', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'code', 'pre', 'a', 'hr'],
-      ALLOWED_ATTR: ['href', 'title', 'target']
+      ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'u', 'strike', 'del', 'p', 'br', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'code', 'pre', 'a', 'hr', 'button', 'span'],
+      ALLOWED_ATTR: ['href', 'title', 'target', 'class', 'data-nav-url']
     });
     
-    return cleanHtml;
+    // Convert links to navigation buttons
+    return this.convertLinksToNavButtons(cleanHtml);
+  }
+
+  /**
+   * Convert <a> tags to navigation buttons that control the active browser tab
+   * Links starting with / or containing the base URL become nav buttons
+   * External links remain as regular links
+   */
+  convertLinksToNavButtons(html) {
+    // Create a temporary container to parse and modify the HTML
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+    
+    // Find all anchor tags
+    const links = temp.querySelectorAll('a[href]');
+    
+    links.forEach(link => {
+      const href = link.getAttribute('href');
+      const text = link.textContent;
+      
+      // Check if this is a navigation link (relative path or same-site URL)
+      if (this.isNavigationLink(href)) {
+        // Build the full URL
+        const fullUrl = this.buildFullUrl(href);
+        
+        // Create a button element
+        const button = document.createElement('button');
+        button.className = 'nav-button';
+        button.setAttribute('data-nav-url', fullUrl);
+        button.textContent = text;
+        button.title = `Navigate to: ${fullUrl}`;
+        
+        // Replace the link with the button
+        link.parentNode.replaceChild(button, link);
+      }
+    });
+    
+    return temp.innerHTML;
+  }
+
+  /**
+   * Check if a link should be converted to a navigation button
+   */
+  isNavigationLink(href) {
+    if (!href) return false;
+    
+    // Relative paths starting with /
+    if (href.startsWith('/')) return true;
+    
+    // URLs matching the base URL domain
+    try {
+      const linkUrl = new URL(href, this.baseUrl);
+      const baseObj = new URL(this.baseUrl);
+      return linkUrl.hostname === baseObj.hostname || 
+             linkUrl.hostname.endsWith('datadoghq.com') ||
+             linkUrl.hostname.endsWith('ddog-gov.com');
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Build a full URL from a relative or absolute path
+   */
+  buildFullUrl(href) {
+    if (!href) return '';
+    
+    // If it's already a full URL, return it
+    if (href.startsWith('http://') || href.startsWith('https://')) {
+      return href;
+    }
+    
+    // If it's a relative path, prepend the base URL
+    try {
+      const url = new URL(href, this.baseUrl);
+      return url.href;
+    } catch {
+      // Fallback: simple concatenation
+      const base = this.baseUrl.endsWith('/') ? this.baseUrl.slice(0, -1) : this.baseUrl;
+      const path = href.startsWith('/') ? href : '/' + href;
+      return base + path;
+    }
   }
 }
 

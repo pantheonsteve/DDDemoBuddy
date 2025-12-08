@@ -3,8 +3,8 @@
 class AIService {
   constructor() {
     this.apiEndpoint = 'https://api.openai.com/v1/chat/completions';
-    this.model = 'gpt-4o'; // GPT-4o supports vision
-    this.maxTokens = 1500;
+    this.model = 'gpt-5-mini'; // GPT-5-mini supports vision (reasoning model)
+    this.maxTokens = 8000; // Reasoning models need more tokens (reasoning + output)
   }
 
   /**
@@ -13,12 +13,13 @@ class AIService {
    * @param {Object} persona - Persona object with name and description
    * @param {string} currentUrl - Current page URL
    * @param {string} apiKey - OpenAI API key
+   * @param {Object} customerContext - Optional customer context object
    * @returns {Promise<Object>} Generated talk track with title and content
    */
-  async generateTalkTrack(imageData, persona, currentUrl, apiKey) {
+  async generateTalkTrack(imageData, persona, currentUrl, apiKey, customerContext = null) {
     try {
-      // Construct the prompt
-      const prompt = this.buildPrompt(persona, currentUrl);
+      // Construct the prompt with optional customer context
+      const prompt = this.buildPrompt(persona, currentUrl, customerContext);
 
       // Prepare the request
       const response = await fetch(this.apiEndpoint, {
@@ -47,21 +48,31 @@ class AIService {
               ]
             }
           ],
-          max_tokens: this.maxTokens,
-          temperature: 0.7
+          max_completion_tokens: this.maxTokens
         })
       });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        console.error('API error response:', errorData);
         throw new Error(errorData.error?.message || `API request failed: ${response.status}`);
       }
 
       const data = await response.json();
-      const content = data.choices[0]?.message?.content;
+      console.log('OpenAI API response:', JSON.stringify(data, null, 2));
+      
+      const content = data.choices?.[0]?.message?.content;
+      const refusal = data.choices?.[0]?.message?.refusal;
+      const finishReason = data.choices?.[0]?.finish_reason;
+
+      if (refusal) {
+        throw new Error(`AI refused to generate: ${refusal}`);
+      }
 
       if (!content) {
-        throw new Error('No content in API response');
+        console.error('No content found. Full response:', data);
+        console.error('Finish reason:', finishReason);
+        throw new Error(`No content in API response. Finish reason: ${finishReason || 'unknown'}`);
       }
 
       // Extract title and content
@@ -82,26 +93,60 @@ class AIService {
    * Build the prompt for OpenAI
    * @param {Object} persona - Persona with name and description
    * @param {string} currentUrl - Current page URL
+   * @param {Object} customerContext - Optional customer context with name and discoveryNotes
    * @returns {string} Formatted prompt
    */
-  buildPrompt(persona, currentUrl) {
+  buildPrompt(persona, currentUrl, customerContext = null) {
+    let customerSection = '';
+    
+    if (customerContext && customerContext.discoveryNotes) {
+      customerSection = `
+## Customer Context: ${customerContext.name}
+${customerContext.industry ? `Industry: ${customerContext.industry}` : ''}
+
+Discovery Notes (what this customer cares about):
+${customerContext.discoveryNotes}
+
+IMPORTANT: Tailor your talk track to address the customer's specific interests and concerns mentioned in the discovery notes above. Make the demo relevant to their use case and pain points.
+
+`;
+    }
+
     return `You are a ${persona.name} analyzing a Datadog monitoring page.
 
 ${persona.description}
+${customerSection}
+Based on the screenshot provided, create a concise, engaging talk track for this page. Where possible, the narrative should be framed as a story about the customer's business and how Datadog can help the target persona of ${persona.name}. It should be concise and contain the following:
 
-Based on the screenshot provided, create a concise, engaging talk track for this page.
+- An overview statement that ties it all together and introduces it to the customer at the very top of the talk track.
+- A bulleted list of prioritized page sections to highlight in the demonstration. The section should start with the title of the section as it appears on the screen. Each point should describe what the feature is, why it's valuable${customerContext ? ' for this customer' : ''}, and what it can help the business do.${customerContext ? ' Focus on features that align with the customer\'s discovery notes.' : ''}
+- A transition suggestion for the demo flow
+- An in-demo discovery question (based on the Command of the Message framework) to ask the customer based on the content of the page and the customer's discovery notes.
+- A recommended tell-show-tell flow for the demonstration, based on the Demo2Win framework.
 
 Requirements:
+- Highlight value points using this exact format: [[VALUE]]text here[[/VALUE]] - these will appear in dark green
+- Highlight business outcomes using this exact format: [[OUTCOME]]text here[[/OUTCOME]] - these will appear in dark blue
 - Use markdown formatting (headings, bold, bullets, etc.)
 - Keep it practical and demo-focused (2-3 minutes to present)
-- Include specific UI elements visible in the screenshot
-- Highlight 3-5 key points or features
-- Add transition suggestions for demo flow
-- Make it persona-appropriate: ${persona.description}
+- Focus on specific UI elements visible in the screenshot, especially the groupings of graphs and the display of data in the main portion of the page.
+- Highlight key points or features
+- Make it scannable during a demonstration. New sentences should be introduced with a new bulletpoint. 
+
+Example formatting for individual feature bullet points:
+
+**{Short description of visual feature and what it does. Example: Core Configuration Tasks banner (blue/purple strip near the top)}**
+
+- **Why it matters:** [[VALUE]]confirms essential setup steps are complete for secure, compliant monitoring of clinical systems before we rely on alerts[[/VALUE]]
+- **Business outcome:** [[OUTCOME]]reduces onboarding time for key log sources (EHR frontends, Apache workers, k8s) so SREs and SecOps can trust detections and avoid blind spots[[/OUTCOME]]
+
+- Make it persona-appropriate: ${persona.description}${customerContext ? `
+- Make it customer-specific: Address ${customerContext.name}'s needs and interests` : ''}
+- Tailor talking points where appropriate to the customer's industry and discovery notes.
+
+At the bottom of the talk track, include a recommendation for the next page to visit based on the content of the current page${customerContext ? ` and the customer's interests` : ''}.
 
 Current page URL: ${currentUrl}
-
-For a technical audience, view the screenshot and generate a bulleted list of what you see and what is noteworthy to highlight in a dmonstration.
 
 Generate the talk track now:`;
   }
