@@ -14,12 +14,13 @@ class AIService {
    * @param {string} currentUrl - Current page URL
    * @param {string} apiKey - OpenAI API key
    * @param {Object} customerContext - Optional customer context object
+   * @param {Object} docContext - Optional documentation context {referenceText, docUrls}
    * @returns {Promise<Object>} Generated talk track with title and content
    */
-  async generateTalkTrack(imageData, persona, currentUrl, apiKey, customerContext = null) {
+  async generateTalkTrack(imageData, persona, currentUrl, apiKey, customerContext = null, docContext = null) {
     try {
-      // Construct the prompt with optional customer context
-      const prompt = this.buildPrompt(persona, currentUrl, customerContext);
+      // Construct the prompt with optional customer and documentation context
+      const prompt = this.buildPrompt(persona, currentUrl, customerContext, docContext);
 
       // Prepare the request
       const response = await fetch(this.apiEndpoint, {
@@ -94,10 +95,13 @@ class AIService {
    * @param {Object} persona - Persona with name and description
    * @param {string} currentUrl - Current page URL
    * @param {Object} customerContext - Optional customer context with name and discoveryNotes
+   * @param {Object} docContext - Optional documentation context {referenceText, docUrls}
    * @returns {string} Formatted prompt
    */
-  buildPrompt(persona, currentUrl, customerContext = null) {
+  buildPrompt(persona, currentUrl, customerContext = null, docContext = null) {
     let customerSection = '';
+    let docSection = '';
+    let docUrlsSection = '';
     
     if (customerContext && customerContext.discoveryNotes) {
       customerSection = `
@@ -112,11 +116,35 @@ IMPORTANT: Tailor your talk track to address the customer's specific interests a
 `;
     }
 
+    if (docContext && docContext.referenceText) {
+      docSection = `
+## Reference Documentation
+
+Use the terminology, feature names, and concepts from the following documentation when creating the talk track:
+
+---
+${docContext.referenceText}
+---
+
+IMPORTANT: Incorporate accurate terminology and language from the documentation above. Use official feature names and descriptions where applicable.
+
+`;
+    }
+
+    if (docContext && docContext.docUrls && docContext.docUrls.length > 0) {
+      docUrlsSection = `
+## Documentation Links to Include
+
+At the end of the talk track, include a "📚 Learn More" section with the following documentation links:
+${docContext.docUrls.map(url => `- ${url}`).join('\n')}
+
+`;
+    }
+
     return `You are a ${persona.name} analyzing a Datadog monitoring page.
 
 ${persona.description}
-${customerSection}
-Based on the screenshot provided, create a concise, engaging talk track for this page. Where possible, the narrative should be framed as a story about the customer's business and how Datadog can help the target persona of ${persona.name}. It should be concise and contain the following:
+${customerSection}${docSection}${docUrlsSection}Based on the screenshot provided, create a concise, engaging talk track for this page. Where possible, the narrative should be framed as a story about the customer's business and how Datadog can help the target persona of ${persona.name}. It should be concise and contain the following:
 
 - An overview statement that ties it all together and introduces it to the customer at the very top of the talk track.
 - A bulleted list of prioritized page sections to highlight in the demonstration. The section should start with the title of the section as it appears on the screen. Each point should describe what the feature is, why it's valuable${customerContext ? ' for this customer' : ''}, and what it can help the business do.${customerContext ? ' Focus on features that align with the customer\'s discovery notes.' : ''}

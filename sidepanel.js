@@ -1,3 +1,18 @@
+// Initialize Datadog RUM (loaded via CDN in sidepanel.html)
+window.DD_RUM && window.DD_RUM.init({
+    applicationId: '936722d5-37e8-4cd4-a5ae-68f46c76a6f7',
+    clientToken: 'pub6073faa971d344833e0b3bacd3e2dc2e',
+    site: 'datadoghq.com',
+    service: 'demobuddy',
+    env: 'localhost',
+    // Specify a version number to identify the deployed version of your application in Datadog
+    // version: '1.0.0',
+    sessionSampleRate: 100,
+    sessionReplaySampleRate: 100,
+    trackBfcacheViews: true,
+    defaultPrivacyLevel: 'allow',
+});
+
 // Side panel logic
 class TalkTrackApp {
   constructor() {
@@ -17,6 +32,8 @@ class TalkTrackApp {
     this.screenshotService = new ScreenshotService();
     this.storageManager = null; // Will be initialized in initCloudSync
     this.syncStatus = { configured: false, lastSync: null, pendingChanges: false };
+    this.docContextText = ''; // Documentation text for AI context
+    this.docUrls = ''; // Documentation URLs for "Learn More" section
     this.init();
   }
 
@@ -34,27 +51,26 @@ class TalkTrackApp {
 
   async initCloudSync() {
     try {
-      // Check if StorageManager is available (might not be if script loading failed)
-      if (typeof StorageManager === 'undefined') {
-        console.warn('StorageManager not available - cloud sync disabled');
+      // Use the new StorageManagerV2 singleton (IndexedDB-based)
+      if (typeof storageManager === 'undefined') {
+        console.warn('StorageManagerV2 not available');
         this.storageManager = null;
         return;
       }
       
-      if (!this.storageManager) {
-        this.storageManager = new StorageManager();
-      }
-      
+      this.storageManager = storageManager;
       await this.storageManager.init();
       await this.updateSyncStatus();
       
-      // Listen for sync events
+      // Listen for storage events
       this.storageManager.addListener((eventType, data) => {
         this.handleSyncEvent(eventType, data);
       });
+      
+      console.log('[TalkTrackApp] Storage initialized with IndexedDB');
     } catch (error) {
-      console.error('Cloud sync init error:', error);
-      // Don't let cloud sync errors break the app
+      console.error('Storage init error:', error);
+      // Don't let storage errors break the app
       this.storageManager = null;
     }
   }
@@ -66,7 +82,20 @@ class TalkTrackApp {
       case 'pendingSync':
       case 'configured':
       case 'disconnected':
+      case 'syncEnabled':
+      case 'syncDisabled':
         this.updateSyncStatus();
+        break;
+      case 'migrationComplete':
+        console.log('[TalkTrackApp] Migration complete:', data);
+        this.showNotification(data.message || 'Data migrated successfully');
+        this.loadTalkTracks();
+        break;
+      case 'saved':
+      case 'trackSaved':
+      case 'trackDeleted':
+        // Refresh tracks display
+        this.loadTalkTracks();
         break;
     }
   }
@@ -124,21 +153,37 @@ class TalkTrackApp {
   }
 
   /**
-   * Save tracks and trigger cloud sync if configured
+   * Save tracks using IndexedDB storage
    */
   async saveTracksWithSync(reason = 'Manual save') {
     try {
-      // Always save to local storage first
-      await chrome.storage.local.set({ talkTracks: this.talkTracks });
-      console.log('Tracks saved to local storage:', this.talkTracks.length, 'tracks');
+      console.log(`[SAVE] Starting save: ${reason}`);
+      console.log(`[SAVE] Tracks to save:`, JSON.stringify(this.talkTracks.map(t => ({ id: t.id, title: t.title }))));
       
-      // Trigger cloud sync if configured
-      if (this.storageManager && this.storageManager.gistService && this.storageManager.gistService.isConfigured()) {
-        this.storageManager.debouncedSync(this.talkTracks);
-        this.updateSyncStatus();
+      if (this.storageManager) {
+        // Use IndexedDB via StorageManagerV2
+        await this.storageManager.saveTracks(this.talkTracks, { reason });
+        console.log(`[SAVE] Saved ${this.talkTracks.length} tracks to IndexedDB`);
+      } else {
+        // Fallback to chrome.storage.local
+        await chrome.storage.local.set({ talkTracks: this.talkTracks });
+        console.log(`[SAVE] Saved ${this.talkTracks.length} tracks to chrome.storage.local (fallback)`);
       }
+      
+      // Verify the save worked
+      const verification = this.storageManager 
+        ? await this.storageManager.loadTracks()
+        : (await chrome.storage.local.get(['talkTracks'])).talkTracks || [];
+      
+      console.log(`[SAVE] Verification - stored ${verification.length} tracks`);
+      
+      if (verification.length !== this.talkTracks.length) {
+        console.error('[SAVE] MISMATCH: Save verification failed!');
+      }
+      
+      this.updateSyncStatus();
     } catch (error) {
-      console.error('Error saving tracks:', error);
+      console.error('[SAVE] Error saving tracks:', error);
       alert('Error saving track: ' + error.message);
       throw error;
     }
@@ -162,18 +207,34 @@ class TalkTrackApp {
   }
 
   async loadCustomers() {
-    const result = await chrome.storage.local.get(['customers', 'selectedCustomerId']);
-    this.customers = result.customers || [];
-    
-    // Load the previously selected customer
-    if (result.selectedCustomerId) {
-      this.selectedCustomer = this.customers.find(c => c.id === result.selectedCustomerId) || null;
+    try {
+      if (this.storageManager) {
+        this.customers = await this.storageManager.getCustomers();
+        const selectedId = await this.storageManager.getSetting('selectedCustomerId');
+        if (selectedId) {
+          this.selectedCustomer = this.customers.find(c => c.id === selectedId) || null;
+        }
+      } else {
+        // Fallback
+        const result = await chrome.storage.local.get(['customers', 'selectedCustomerId']);
+        this.customers = result.customers || [];
+        if (result.selectedCustomerId) {
+          this.selectedCustomer = this.customers.find(c => c.id === result.selectedCustomerId) || null;
+        }
+      }
+    } catch (error) {
+      console.error('Error loading customers:', error);
+      this.customers = [];
     }
   }
 
   async setSelectedCustomer(customerId) {
     this.selectedCustomer = customerId ? this.customers.find(c => c.id === customerId) : null;
-    await chrome.storage.local.set({ selectedCustomerId: customerId || null });
+    if (this.storageManager) {
+      await this.storageManager.setSetting('selectedCustomerId', customerId || null);
+    } else {
+      await chrome.storage.local.set({ selectedCustomerId: customerId || null });
+    }
     this.render();
   }
 
@@ -229,8 +290,23 @@ class TalkTrackApp {
   }
 
   async loadTalkTracks() {
-    const result = await chrome.storage.local.get(['talkTracks']);
-    this.talkTracks = result.talkTracks || [];
+    console.log('[LOAD] Loading talk tracks from storage...');
+    try {
+      // Use IndexedDB storage via StorageManagerV2
+      if (this.storageManager) {
+        this.talkTracks = await this.storageManager.loadTracks();
+      } else {
+        // Fallback to chrome.storage.local if StorageManager not ready
+        const result = await chrome.storage.local.get(['talkTracks']);
+        this.talkTracks = result.talkTracks || [];
+      }
+      console.log(`[LOAD] Loaded ${this.talkTracks.length} tracks:`, this.talkTracks.map(t => ({ id: t.id, title: t.title })));
+    } catch (error) {
+      console.error('[LOAD] Error loading tracks:', error);
+      // Fallback to chrome.storage.local
+      const result = await chrome.storage.local.get(['talkTracks']);
+      this.talkTracks = result.talkTracks || [];
+    }
     this.render();
   }
 
@@ -257,6 +333,16 @@ class TalkTrackApp {
     // Listen for storage changes (when user updates talk tracks)
     chrome.storage.onChanged.addListener((changes) => {
       if (changes.talkTracks) {
+        const oldCount = changes.talkTracks.oldValue?.length || 0;
+        const newCount = changes.talkTracks.newValue?.length || 0;
+        console.log(`[STORAGE CHANGE] Talk tracks changed: ${oldCount} -> ${newCount} tracks`);
+        
+        if (newCount < oldCount) {
+          console.warn('[STORAGE CHANGE] WARNING: Track count decreased!');
+          console.log('[STORAGE CHANGE] Old tracks:', changes.talkTracks.oldValue?.map(t => ({ id: t.id, title: t.title })));
+          console.log('[STORAGE CHANGE] New tracks:', changes.talkTracks.newValue?.map(t => ({ id: t.id, title: t.title })));
+        }
+        
         this.talkTracks = changes.talkTracks.newValue || [];
         if (!this.aiMode) {
           this.render();
@@ -668,13 +754,20 @@ class TalkTrackApp {
         discoveryNotes: this.selectedCustomer.discoveryNotes
       } : null;
 
+      // Prepare documentation context
+      const docContext = {
+        referenceText: this.docContextText?.trim() || '',
+        docUrls: this.docUrls?.trim() ? this.docUrls.trim().split('\n').filter(url => url.trim()) : []
+      };
+
       // Generate talk track (pass customer context if available)
       const generated = await this.aiService.generateTalkTrack(
         response.dataUrl,
         this.selectedPersona,
         this.currentUrl || targetTab.url,
         apiKey,
-        customerContext
+        customerContext,
+        docContext
       );
 
       console.log('Talk track generated successfully', customerContext ? `(for ${customerContext.name})` : '(generic)');
@@ -868,32 +961,88 @@ class TalkTrackApp {
   }
 
   findMatchingTalkTrack() {
-    // Smart track matching with customer priority:
-    // 1. If customer selected: find customer-specific track first
-    // 2. Fall back to generic track if no customer-specific match
-    // 3. If no customer selected: use generic tracks only
+    // Smart track matching with customer priority and pattern specificity:
+    // 1. Find all matching tracks
+    // 2. Sort by pattern specificity (more specific patterns first)
+    // 3. If customer selected: find customer-specific track first
+    // 4. Fall back to generic track if no customer-specific match
+    // 5. If no customer selected: use generic tracks only
     
     const matchingTracks = this.talkTracks.filter(track => 
       this.urlMatches(this.currentUrl, track.urlPattern)
     );
     
+    console.log(`[URL Match] Current URL: ${this.currentUrl}`);
+    console.log(`[URL Match] Found ${matchingTracks.length} matching tracks:`, 
+      matchingTracks.map(t => ({ title: t.title, pattern: t.urlPattern, specificity: this.getPatternSpecificity(t.urlPattern) }))
+    );
+    
     if (matchingTracks.length === 0) return null;
+    
+    // Sort by pattern specificity (higher = more specific)
+    matchingTracks.sort((a, b) => {
+      const specA = this.getPatternSpecificity(a.urlPattern);
+      const specB = this.getPatternSpecificity(b.urlPattern);
+      return specB - specA; // Descending - most specific first
+    });
+    
+    console.log(`[URL Match] After sorting by specificity:`, 
+      matchingTracks.map(t => ({ title: t.title, pattern: t.urlPattern, specificity: this.getPatternSpecificity(t.urlPattern) }))
+    );
     
     if (this.selectedCustomer) {
       // Look for customer-specific track first
       const customerTrack = matchingTracks.find(track => 
         track.customerId === this.selectedCustomer.id
       );
-      if (customerTrack) return customerTrack;
+      if (customerTrack) {
+        console.log(`[URL Match] Selected customer-specific track: ${customerTrack.title}`);
+        return customerTrack;
+      }
       
       // Fall back to generic track
       const genericTrack = matchingTracks.find(track => !track.customerId);
+      console.log(`[URL Match] Selected generic track: ${genericTrack?.title || 'none'}`);
       return genericTrack || null;
     } else {
       // No customer selected - use generic tracks only
       const genericTrack = matchingTracks.find(track => !track.customerId);
+      console.log(`[URL Match] Selected generic track: ${genericTrack?.title || 'none'}`);
       return genericTrack || null;
     }
+  }
+
+  /**
+   * Calculate pattern specificity score
+   * Higher score = more specific pattern
+   * Factors: fewer wildcards, longer literal segments, exact path matches
+   */
+  getPatternSpecificity(pattern) {
+    if (!pattern) return 0;
+    
+    let score = 0;
+    
+    // Longer patterns are generally more specific
+    score += pattern.length;
+    
+    // Count wildcards (fewer = more specific)
+    const wildcardCount = (pattern.match(/\*/g) || []).length;
+    score -= wildcardCount * 20; // Heavy penalty for wildcards
+    
+    // Count path segments (more segments = more specific)
+    const pathSegments = pattern.split('/').filter(s => s && s !== '*').length;
+    score += pathSegments * 10;
+    
+    // Bonus for ending with specific path (not wildcard)
+    if (!pattern.endsWith('*') && !pattern.endsWith('/')) {
+      score += 15;
+    }
+    
+    // Bonus for having literal text (not just wildcards)
+    const literalLength = pattern.replace(/\*/g, '').length;
+    score += literalLength * 2;
+    
+    return score;
   }
 
   urlMatches(url, pattern) {
@@ -1377,6 +1526,36 @@ Has data-list: ${html.includes('data-list')}
             <p class="persona-description">${this.selectedPersona?.description || ''}</p>
           </div>
 
+          <div class="doc-context-section">
+            <div class="form-group">
+              <label for="docContextText">
+                📄 Reference Documentation
+                <span class="label-hint">(optional)</span>
+              </label>
+              <p class="field-description">Paste relevant documentation text to inform terminology and language</p>
+              <textarea 
+                id="docContextText" 
+                class="doc-context-textarea" 
+                placeholder="Paste documentation content here to help AI use accurate terminology..."
+                rows="4"
+              >${this.escapeHtml(this.docContextText || '')}</textarea>
+            </div>
+            
+            <div class="form-group">
+              <label for="docUrls">
+                🔗 Documentation Links
+                <span class="label-hint">(optional)</span>
+              </label>
+              <p class="field-description">URLs to include as "Learn More" references (one per line)</p>
+              <textarea 
+                id="docUrls" 
+                class="doc-urls-textarea" 
+                placeholder="https://docs.datadoghq.com/dashboards/&#10;https://docs.datadoghq.com/metrics/"
+                rows="3"
+              >${this.escapeHtml(this.docUrls || '')}</textarea>
+            </div>
+          </div>
+
           <button id="captureGenerateBtn" class="ai-generate-btn">
             📸 Capture & Generate${this.selectedCustomer ? ` for ${this.escapeHtml(this.selectedCustomer.name)}` : ''}
           </button>
@@ -1415,6 +1594,21 @@ Has data-list: ${html.includes('data-list')}
     const customerSelectAi = document.getElementById('customerSelectAi');
     if (customerSelectAi) {
       customerSelectAi.addEventListener('change', (e) => this.setSelectedCustomer(e.target.value));
+    }
+
+    // Documentation context fields
+    const docContextText = document.getElementById('docContextText');
+    if (docContextText) {
+      docContextText.addEventListener('input', (e) => {
+        this.docContextText = e.target.value;
+      });
+    }
+
+    const docUrls = document.getElementById('docUrls');
+    if (docUrls) {
+      docUrls.addEventListener('input', (e) => {
+        this.docUrls = e.target.value;
+      });
     }
 
     const generateBtn = document.getElementById('captureGenerateBtn');

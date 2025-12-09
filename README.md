@@ -38,6 +38,13 @@ A Chrome extension that displays presenter notes/talk tracks based on the curren
 - 📤 **Export Backups** - Download individual backups as JSON files
 - 🛡️ **Pre-Restore Safety** - Creates backup of current state before restoring
 
+### Cloud Sync & Pro Features ☁️
+- 🔐 **User Authentication** - Sign up/login with email or Google
+- ☁️ **Cloud Backup** - Sync your tracks to the cloud (Pro)
+- 💻 **Multi-Device Access** - Access tracks from any device (Pro)
+- 💳 **Stripe Integration** - Secure payment processing for Pro upgrades
+- 📊 **Usage Dashboard** - Track your storage and sync status
+
 ### AI-Powered Generation (NEW! 🤖✨)
 - 🤖 **AI Talk Track Generation** - Let GPT-4 Vision create talk tracks from screenshots
 - 📸 **Full-Page Capture** - Automatically captures entire scrolling pages
@@ -55,6 +62,50 @@ A Chrome extension that displays presenter notes/talk tracks based on the curren
 3. Click "Load unpacked"
 4. Select the `demoextension` folder
 5. Pin the extension to your toolbar (optional but recommended)
+
+## Configuration
+
+### Setting Up API Keys
+
+The extension supports optional cloud sync and Pro subscriptions. To enable these features:
+
+1. **Copy the config template:**
+   ```bash
+   cp config.example.js config.js
+   ```
+
+2. **Edit `config.js`** with your API keys:
+   ```javascript
+   const DEMOBUDDY_CONFIG = {
+     // Supabase (for cloud sync & auth)
+     SUPABASE_URL: 'https://your-project.supabase.co',
+     SUPABASE_ANON_KEY: 'your-anon-key',
+     
+     // Stripe (for Pro subscriptions)
+     STRIPE_PUBLISHABLE_KEY: 'pk_test_xxx',
+     STRIPE_PRICE_MONTHLY: 'price_xxx',
+     STRIPE_PRICE_ANNUAL: 'price_xxx',
+   };
+   ```
+
+3. **Reload the extension** in `chrome://extensions/`
+
+> ⚠️ **Important:** Never commit `config.js` to git! It's already in `.gitignore`.
+
+### Getting API Keys
+
+| Service | Where to Get Keys |
+|---------|-------------------|
+| Supabase | [supabase.com/dashboard](https://supabase.com/dashboard) → Project Settings → API |
+| Stripe | [dashboard.stripe.com/apikeys](https://dashboard.stripe.com/apikeys) |
+| OpenAI (for AI features) | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+
+### Cloud Sync Setup (Optional)
+
+For full cloud sync functionality, see **[SUPABASE_SETUP.md](SUPABASE_SETUP.md)** for:
+- Database schema setup
+- Edge Functions deployment
+- Stripe webhook configuration
 
 ## Usage
 
@@ -244,16 +295,30 @@ You can use `*` as a wildcard to match any text.
 
 ```
 demoextension/
-├── manifest.json          # Extension configuration
-├── background.js          # Background service worker
-├── content.js             # Detects URL changes
-├── sidepanel.html         # Popup window UI
-├── sidepanel.js           # Popup window logic
-├── sidepanel.css          # Popup window styles
-├── options.html           # Configuration page UI
-├── options.js             # Configuration page logic
-├── options.css            # Configuration page styles
-└── icons/                 # Extension icons
+├── manifest.json              # Extension configuration
+├── config.example.js          # Config template (copy to config.js)
+├── config.js                  # Your API keys (git-ignored)
+├── background.js              # Background service worker
+├── content.js                 # Detects URL changes
+├── sidepanel.html             # Popup window UI
+├── sidepanel.js               # Popup window logic
+├── sidepanel.css              # Popup window styles
+├── options.html               # Configuration page UI
+├── options.js                 # Configuration page logic
+├── options.css                # Configuration page styles
+├── auth-ui.js                 # Authentication UI component
+├── auth-ui.css                # Auth UI styles
+├── supabase-cloud-service.js  # Cloud sync & auth service
+├── indexed-db-storage.js      # Local IndexedDB storage
+├── storage-manager-v2.js      # Unified storage manager
+├── ai-service.js              # AI generation service
+├── icons/                     # Extension icons
+└── supabase/                  # Supabase configuration
+    ├── schema.sql             # Database schema
+    └── functions/             # Edge Functions
+        ├── create-checkout/   # Stripe checkout
+        ├── billing-portal/    # Subscription management
+        └── stripe-webhook/    # Payment webhooks
 ```
 
 ## Customization

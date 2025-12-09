@@ -1,3 +1,18 @@
+// Initialize Datadog RUM (loaded via CDN in sidepanel.html)
+window.DD_RUM && window.DD_RUM.init({
+  applicationId: '936722d5-37e8-4cd4-a5ae-68f46c76a6f7',
+  clientToken: 'pub6073faa971d344833e0b3bacd3e2dc2e',
+  site: 'datadoghq.com',
+  service: 'demobuddy',
+  env: 'localhost',
+  // Specify a version number to identify the deployed version of your application in Datadog
+  // version: '1.0.0',
+  sessionSampleRate: 100,
+  sessionReplaySampleRate: 100,
+  trackBfcacheViews: true,
+  defaultPrivacyLevel: 'allow',
+});
+
 // Options page logic
 class OptionsManager {
   constructor() {
@@ -97,29 +112,33 @@ class OptionsManager {
   // ==================== CLOUD SYNC ====================
   
   async initCloudSync() {
+    window.DD_RUM.addAction('initCloudSync');
     try {
-      // Check if StorageManager is available
-      if (typeof StorageManager === 'undefined') {
-        console.warn('StorageManager not available - cloud sync disabled');
+      // Use the new StorageManagerV2 singleton (IndexedDB-based)
+      if (typeof storageManager === 'undefined') {
+        console.warn('StorageManagerV2 not available');
         this.storageManager = null;
         return;
       }
       
-      this.storageManager = new StorageManager();
+      this.storageManager = storageManager;
       await this.storageManager.init();
       
-      // Listen for sync events
+      // Listen for storage events
       this.storageManager.addListener((eventType, data) => {
         this.handleSyncEvent(eventType, data);
       });
+      
+      console.log('[OptionsManager] Storage initialized with IndexedDB');
     } catch (error) {
-      console.error('Cloud sync init error:', error);
+      console.error('Storage init error:', error);
       this.storageManager = null;
     }
   }
 
   handleSyncEvent(eventType, data) {
     console.log('Sync event:', eventType, data);
+    window.DD_RUM.addAction('syncEvent', eventType, data);
     
     switch (eventType) {
       case 'syncStarted':
@@ -127,6 +146,7 @@ class OptionsManager {
         break;
       case 'syncCompleted':
         this.updateSyncStatus('synced', `Synced! ${data.trackCount} tracks`);
+        window.DD_RUM.addAction('syncCompleted', data.trackCount);
         this.renderCloudSync();
         break;
       case 'syncError':
@@ -1483,19 +1503,37 @@ class OptionsManager {
   }
 
   async loadTracks() {
-    const result = await chrome.storage.local.get(['talkTracks']);
-    this.tracks = result.talkTracks || [];
+    try {
+      // Use IndexedDB via StorageManagerV2 if available
+      if (this.storageManager) {
+        this.tracks = await this.storageManager.loadTracks();
+      } else if (typeof storageManager !== 'undefined') {
+        // Try to use the singleton directly
+        await storageManager.init();
+        this.tracks = await storageManager.loadTracks();
+        this.storageManager = storageManager;
+      } else {
+        // Fallback to chrome.storage.local
+        const result = await chrome.storage.local.get(['talkTracks']);
+        this.tracks = result.talkTracks || [];
+      }
+    } catch (error) {
+      console.error('Error loading tracks:', error);
+      // Fallback to chrome.storage.local
+      const result = await chrome.storage.local.get(['talkTracks']);
+      this.tracks = result.talkTracks || [];
+    }
     
-    // Migrate old tracks to new structure while preserving all existing fields
+    // Normalize tracks structure while preserving all existing fields
     this.tracks = this.tracks.map((track, index) => ({
       id: track.id || Date.now() + index,
       title: track.title || '',
       category: track.category || 'Other',
-      customerId: track.customerId || null, // Preserve customer association
-      tags: track.tags || [], // Preserve tags
+      customerId: track.customerId || null,
+      tags: track.tags || [],
       urlPattern: track.urlPattern || '',
       content: track.content || '',
-      htmlBackup: track.htmlBackup || null, // Preserve HTML backup
+      htmlBackup: track.htmlBackup || null,
       order: track.order !== undefined ? track.order : index
     }));
     
@@ -1513,6 +1551,8 @@ class OptionsManager {
         order: 0
       }];
     }
+    
+    console.log(`[OptionsManager] Loaded ${this.tracks.length} tracks`);
   }
 
   setupEventListeners() {
@@ -2206,9 +2246,11 @@ class OptionsManager {
       console.error('Backup failed, but continuing with save:', backupError);
     }
 
-    // Collect current values from form
+    // Collect current values from form, preserving tracks without DOM elements
     const tracksData = [];
     const conversionWarnings = [];
+    let tracksUpdatedFromDOM = 0;
+    let tracksPreservedWithoutDOM = 0;
     
     for (const track of this.tracks) {
       const titleEl = document.getElementById(`title-${track.id}`);
@@ -2218,6 +2260,7 @@ class OptionsManager {
       const quill = this.quillEditors.get(track.id);
       
       if (titleEl && categoryEl && urlEl) {
+        // Track has DOM elements - update from form values
         const urlPattern = urlEl.value.trim();
         
         // Get content from whichever editor is visible
@@ -2276,8 +2319,24 @@ class OptionsManager {
           }
           
           tracksData.push(trackData);
+          tracksUpdatedFromDOM++;
+        }
+      } else {
+        // Track doesn't have DOM elements (filtered out, collapsed, etc.)
+        // PRESERVE the track as-is to prevent data loss!
+        if (track.urlPattern) {
+          tracksData.push({ ...track });
+          tracksPreservedWithoutDOM++;
+          console.log(`[SAVE] Preserved track without DOM: "${track.title}" (id: ${track.id})`);
         }
       }
+    }
+    
+    console.log(`[SAVE] Updated ${tracksUpdatedFromDOM} tracks from DOM, preserved ${tracksPreservedWithoutDOM} tracks without DOM`);
+    
+    // Safety check: warn if we're about to save fewer tracks than we had
+    if (tracksData.length < this.tracks.length) {
+      console.warn(`[SAVE] WARNING: Saving ${tracksData.length} tracks but had ${this.tracks.length} - some tracks may be lost!`);
     }
 
     // Warn about potential data loss
@@ -2541,9 +2600,15 @@ class OptionsManager {
     const matches = [];
     for (const track of this.tracks) {
       if (this.urlMatches(testUrl, track.urlPattern)) {
-        matches.push(track);
+        matches.push({
+          ...track,
+          specificity: this.getPatternSpecificity(track.urlPattern)
+        });
       }
     }
+    
+    // Sort by specificity (most specific first)
+    matches.sort((a, b) => b.specificity - a.specificity);
     
     if (matches.length === 0) {
       resultsDiv.innerHTML = '<p style="color: #dc3545;">❌ No matching tracks found</p>';
@@ -2555,20 +2620,55 @@ class OptionsManager {
           <strong>${this.escapeHtml(track.title || 'Untitled')}</strong><br>
           <small style="color: #666;">Category: ${track.category}</small><br>
           <code style="font-size: 12px;">${this.escapeHtml(track.urlPattern)}</code>
+          <small style="color: #999; margin-left: 8px;">Specificity: ${track.specificity}</small>
         </div>
       `;
     } else {
       resultsDiv.innerHTML = `
-        <p style="color: #ff8800;">⚠️ Multiple matches found (${matches.length}) - first match will be used:</p>
+        <p style="color: #ff8800;">⚠️ Multiple matches found (${matches.length}) - most specific match will be used:</p>
         ${matches.map((track, i) => `
           <div style="background: #f8f9fa; padding: 12px; border-radius: 4px; margin-top: 8px; border-left: 3px solid ${i === 0 ? '#28a745' : '#dee2e6'}">
-            <strong>${this.escapeHtml(track.title || 'Untitled')}</strong> ${i === 0 ? '<span style="color: #28a745;">(active)</span>' : ''}<br>
+            <strong>${this.escapeHtml(track.title || 'Untitled')}</strong> ${i === 0 ? '<span style="color: #28a745;">(active - most specific)</span>' : ''}<br>
             <small style="color: #666;">Category: ${track.category}</small><br>
             <code style="font-size: 12px;">${this.escapeHtml(track.urlPattern)}</code>
+            <small style="color: #999; margin-left: 8px;">Specificity: ${track.specificity}</small>
           </div>
         `).join('')}
       `;
     }
+  }
+
+  /**
+   * Calculate pattern specificity score
+   * Higher score = more specific pattern
+   * Factors: fewer wildcards, longer literal segments, exact path matches
+   */
+  getPatternSpecificity(pattern) {
+    if (!pattern) return 0;
+    
+    let score = 0;
+    
+    // Longer patterns are generally more specific
+    score += pattern.length;
+    
+    // Count wildcards (fewer = more specific)
+    const wildcardCount = (pattern.match(/\*/g) || []).length;
+    score -= wildcardCount * 20; // Heavy penalty for wildcards
+    
+    // Count path segments (more segments = more specific)
+    const pathSegments = pattern.split('/').filter(s => s && s !== '*').length;
+    score += pathSegments * 10;
+    
+    // Bonus for ending with specific path (not wildcard)
+    if (!pattern.endsWith('*') && !pattern.endsWith('/')) {
+      score += 15;
+    }
+    
+    // Bonus for having literal text (not just wildcards)
+    const literalLength = pattern.replace(/\*/g, '').length;
+    score += literalLength * 2;
+    
+    return score;
   }
 
   urlMatches(url, pattern) {
@@ -3342,3 +3442,30 @@ class OptionsManager {
 
 // Initialize
 const optionsManager = new OptionsManager();
+
+// Initialize Auth UI
+let authUI = null;
+if (typeof AuthUI !== 'undefined' && typeof isCloudEnabled === 'function') {
+  authUI = new AuthUI('#authContainer');
+  authUI.init().then(() => {
+    // Show legacy GitHub sync if cloud is not enabled
+    const githubSection = document.getElementById('githubSyncSection');
+    if (githubSection && !isCloudEnabled()) {
+      githubSection.style.display = 'block';
+    }
+  });
+  
+  // Wire up sync callback
+  authUI.onSyncRequest = async () => {
+    if (typeof supabaseCloud !== 'undefined' && supabaseCloud.isPro()) {
+      // Trigger cloud sync
+      const tracks = optionsManager.tracks || [];
+      const result = await supabaseCloud.sync(tracks);
+      if (result.success) {
+        alert('Sync completed successfully!');
+      } else {
+        alert('Sync failed: ' + result.error);
+      }
+    }
+  };
+}

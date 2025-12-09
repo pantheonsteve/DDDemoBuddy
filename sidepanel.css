@@ -459,6 +459,78 @@ body {
   color: #555;
 }
 
+/* Documentation Context Section */
+.doc-context-section {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #e0e0e0;
+}
+
+.doc-context-section .form-group {
+  margin-bottom: 16px;
+}
+
+.doc-context-section label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #333;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.doc-context-section .label-hint {
+  font-weight: normal;
+  font-size: 12px;
+  color: #888;
+}
+
+.doc-context-section .field-description {
+  font-size: 12px;
+  color: #666;
+  margin: 0 0 8px 0;
+  line-height: 1.4;
+}
+
+.doc-context-textarea,
+.doc-urls-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+  box-sizing: border-box;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.doc-context-textarea {
+  min-height: 80px;
+  background-color: #fafbfc;
+}
+
+.doc-urls-textarea {
+  min-height: 60px;
+  font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
+  font-size: 12px;
+  background-color: #f8f9fa;
+}
+
+.doc-context-textarea:focus,
+.doc-urls-textarea:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+}
+
+.doc-context-textarea::placeholder,
+.doc-urls-textarea::placeholder {
+  color: #aaa;
+}
+
 .ai-generate-btn {
   width: 100%;
   padding: 14px 20px;
